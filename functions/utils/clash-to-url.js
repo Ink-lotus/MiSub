@@ -122,6 +122,11 @@ export function convertClashProxyToUrl(proxy) {
                 if (wsOpts.path) params.push(`path=${encodeURIComponent(wsOpts.path)}`);
                 if (wsOpts.headers?.Host) params.push(`host=${encodeURIComponent(wsOpts.headers.Host)}`);
             }
+            const grpcOpts = proxy.grpcOpts || proxy['grpc-opts'];
+            if (grpcOpts) {
+                if (grpcOpts['grpc-service-name']) params.push(`serviceName=${encodeURIComponent(grpcOpts['grpc-service-name'])}`);
+                if (grpcOpts['grpc-mode']) params.push(`mode=${encodeURIComponent(grpcOpts['grpc-mode'])}`);
+            }
             const httpupgradeOpts = proxy['httpupgrade-opts'] || proxy.httpupgradeOpts;
             if (httpupgradeOpts) {
                 if (httpupgradeOpts.path) params.push(`path=${encodeURIComponent(httpupgradeOpts.path)}`);

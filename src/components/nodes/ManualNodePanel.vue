@@ -4,6 +4,7 @@ import BulkOperations from './ManualNodePanel/BulkOperations.vue';
 import NodeActions from './ManualNodePanel/NodeActions.vue';
 import NodeTable from './ManualNodePanel/NodeTable.vue';
 import { useManualNodeSearchPagination } from '@/composables/manual-nodes/useManualNodeSearchPagination.js';
+import { normalizeManualNodeGroupName } from '@/composables/manual-nodes/groups.js';
 
 const props = defineProps({
   manualNodes: { type: Array, default: () => [] },
@@ -98,8 +99,20 @@ const handleBatchDelete = () => {
     isSelectionMode.value = false;
 };
 
+const sortableManualNodes = computed(() => {
+  const activeGroup = props.activeGroupFilter;
+  let nodes = filteredNodes.value;
+
+  if (activeGroup) {
+    const normalizedActiveGroup = activeGroup === '默认' ? '' : normalizeManualNodeGroupName(activeGroup);
+    nodes = nodes.filter((node) => normalizeManualNodeGroupName(node.group) === normalizedActiveGroup);
+  }
+
+  return nodes;
+});
+
 const draggableManualNodes = computed({
-  get: () => [...props.manualNodes],
+  get: () => (props.isSorting ? [...sortableManualNodes.value] : [...props.manualNodes]),
   set: (val) => emit('reorder', val)
 });
 

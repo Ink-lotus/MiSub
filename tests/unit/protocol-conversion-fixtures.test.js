@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import yaml from 'js-yaml';
 import { convertClashProxyToUrl } from '../../functions/utils/clash-to-url.js';
 import { urlToClashProxy, urlsToClashProxies } from '../../functions/utils/url-to-clash.js';
+import { extractValidNodes } from '../../functions/modules/utils/node-parser.js';
+import { generateBuiltinClashConfig } from '../../functions/modules/subscription/builtin-clash-generator.js';
 
 const stripGeneratedFields = (proxy) => {
     const { metadata, ...rest } = proxy;
@@ -142,6 +145,10 @@ describe('protocol conversion fixtures', () => {
                         'public-key': 'public-key-value',
                         'short-id': 'abcd',
                         'spider-x': '/'
+                    },
+                    'grpc-opts': {
+                        'grpc-service-name': 'update',
+                        'grpc-mode': 'gun'
                     }
                 },
                 expected: {
@@ -161,6 +168,10 @@ describe('protocol conversion fixtures', () => {
                         'public-key': 'public-key-value',
                         'short-id': 'abcd',
                         'spider-x': '/'
+                    },
+                    'grpc-opts': {
+                        'grpc-service-name': 'update',
+                        'grpc-mode': 'gun'
                     }
                 }
             },
@@ -467,6 +478,45 @@ describe('protocol conversion fixtures', () => {
         for (const fixture of fixtures) {
             expectParseOnly(fixture.url, fixture.expected);
         }
+    });
+
+    it('preserves VLESS gRPC service options from Clash YAML through URL and builtin Clash output', () => {
+        const clashConfig = `
+proxies:
+  - name: JP-1
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 22222222-2222-4222-8222-222222222222
+    network: grpc
+    tls: true
+    servername: www.example.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: public-key-value
+      short-id: abcd
+    grpc-opts:
+      grpc-service-name: update
+      grpc-mode: gun
+`;
+
+        const nodes = extractValidNodes(clashConfig);
+
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0]).toContain('type=grpc');
+        expect(nodes[0]).toContain('serviceName=update');
+        expect(nodes[0]).toContain('mode=gun');
+
+        const fullConfig = yaml.load(generateBuiltinClashConfig(nodes.join('\n'), { addFlagEmoji: false }));
+        expect(fullConfig.proxies[0]).toMatchObject({
+            name: 'JP-1',
+            type: 'vless',
+            network: 'grpc',
+            'grpc-opts': {
+                'grpc-service-name': 'update',
+                'grpc-mode': 'gun'
+            }
+        });
     });
 
     it('documents one-way exports whose emitted schemes are not parsed back yet', () => {

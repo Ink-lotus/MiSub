@@ -218,12 +218,22 @@ export function useManualNodes(markDirty) {
   });
 
   function reorderManualNodes(newOrder) {
+    const currentManualNodes = manualNodes.value;
+    const reorderedVisibleNodes = [...(newOrder || [])];
+    const newOrderIds = new Set(reorderedVisibleNodes.map(node => node.id));
+    const orderedManualNodes = newOrderIds.size > 0 && newOrderIds.size < currentManualNodes.length
+      ? currentManualNodes.map((node) => {
+          if (!newOrderIds.has(node.id)) return node;
+          return reorderedVisibleNodes.shift();
+        })
+      : reorderedVisibleNodes;
+
     // 1. Get all Subscriptions (to preserve them)
     const currentSubscriptions = (allSubscriptions.value || []).filter(item => item.url && /^https?:\/\//.test(item.url));
 
     // 2. Combine Existing Subscriptions + New Ordered Manual Nodes
     // Logic: Manual Nodes at top, Subscriptions at bottom
-    const mergedList = [...newOrder, ...currentSubscriptions];
+    const mergedList = [...orderedManualNodes, ...currentSubscriptions];
 
     // 3. Update Store
     dataStore.overwriteSubscriptions(mergedList);
