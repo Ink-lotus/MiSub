@@ -19,7 +19,7 @@ import {
  * @param {boolean} plusAsSpace - 是否将名称中的 + 视为空格
  * @returns {Promise<Object>} 节点获取结果
  */
-export async function fetchSubscriptionNodes(url, subscriptionName, userAgent, customUserAgent = null, debug = false, excludeRules = '', fetchProxy = null, skipCertVerify = false, plusAsSpace = false) {
+export async function fetchSubscriptionNodes(url, subscriptionName, userAgent, customUserAgent = null, debug = false, excludeRules = '', fetchProxy = null, skipCertVerify = false, plusAsSpace = false, enableNodeCache = false) {
     // 自动检测调试 Token
     const shouldDebug = debug || (url && url.includes('b0b422857bb46aba65da8234c84f38c6'));
 
@@ -30,6 +30,18 @@ export async function fetchSubscriptionNodes(url, subscriptionName, userAgent, c
 
         // 当配置了 fetchProxy 时，使用代理拉取订阅
         let requestUrl = url;
+        
+        // 只有开启保护性缓存节点时才加时间戳绕过强缓存 (如 Cloudflare Edge Cache)
+        if (enableNodeCache) {
+            try {
+                const parsedUrl = new URL(requestUrl);
+                parsedUrl.searchParams.set('_t', Date.now().toString());
+                requestUrl = parsedUrl.toString();
+            } catch (e) {
+                requestUrl += (requestUrl.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            }
+        }
+
         if (fetchProxy && typeof fetchProxy === 'string' && fetchProxy.trim()) {
             requestUrl = buildFetchProxyUrl(fetchProxy, url, effectiveUserAgent);
         }
