@@ -181,7 +181,7 @@ See [Operator Chain Guide](docs/OPERATOR_CHAIN_GUIDE.md) for details.
 
 - [Chinese README](README-zh.md)
 - [Operator Chain Guide](docs/OPERATOR_CHAIN_GUIDE.md)
-- [v2.5 Upgrade Guide](docs/UPGRADE_V2.5.md)
+- [v2.5.0 Upgrade Guide](docs/UPGRADE_V2.5.md)
 - [Architecture](docs/architecture.md)
 - [Data Model](docs/data-model.md)
 
