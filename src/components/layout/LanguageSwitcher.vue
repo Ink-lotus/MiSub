@@ -9,9 +9,6 @@ const isZh = computed(() => locale.value === 'zh-CN');
 function toggleLocale() {
   setLocale(isZh.value ? 'en-US' : 'zh-CN');
 }
-
-// Lucide "languages" — translate icon (A + 文)
-const langPath = 'm5 8 6 6m-7-6 6-6 2-3M2 5h12M7 7h2m8 6 3 9h2l3-9m-8 0h6m-3 9v-6';
 </script>
 
 <template>
@@ -31,7 +28,13 @@ const langPath = 'm5 8 6 6m-7-6 6-6 2-3M2 5h12M7 7h2m8 6 3 9h2l3-9m-8 0h6m-3 9v-
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <path :d="langPath" />
+      <!-- Left: stylized "A" -->
+      <path d="M3 17 L4 5 L9 17" />
+      <path d="M3.5 11 h5" />
+      <!-- Right: stylized character (vertical + 2 horizontals) -->
+      <path d="M14 4 v14" />
+      <path d="M12 9 h8" />
+      <path d="M12 15 h8" />
     </svg>
-    </button>
+  </button>
 </template>
