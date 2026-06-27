@@ -14,27 +14,26 @@ function toggleLocale() {
 <template>
   <button
     @click="toggleLocale"
-    class="nav-action-btn nav-action-btn-neutral rounded-full relative"
+    class="nav-action-btn nav-action-btn-neutral rounded-full"
     :title="isZh ? t('common.switchToEnglish') : t('common.switchToChinese')"
     :aria-label="isZh ? t('common.switchToEnglish') : t('common.switchToChinese')"
   >
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="h-5 w-5"
-      fill="none"
       viewBox="0 0 24 24"
+      fill="none"
       stroke="currentColor"
       stroke-width="2"
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <!-- Left: stylized "A" -->
-      <path d="M3 17 L4 5 L9 17" />
-      <path d="M3.5 11 h5" />
-      <!-- Right: stylized character (vertical + 2 horizontals) -->
-      <path d="M14 4 v14" />
-      <path d="M12 9 h8" />
-      <path d="M12 15 h8" />
+      <path d="m5 8 6 6" />
+      <path d="m4 14 6-6 2-3" />
+      <path d="M2 5h12" />
+      <path d="M7 2h1" />
+      <path d="m22 22-5-10-5 10" />
+      <path d="M14 18h6" />
     </svg>
   </button>
 </template>
