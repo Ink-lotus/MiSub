@@ -10,8 +10,8 @@ function toggleLocale() {
   setLocale(isZh.value ? 'en-US' : 'zh-CN');
 }
 
-// Heroicons v2 globe-alt
-const globePath = 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9';
+// Lucide "languages" — translate icon (A + 文)
+const langPath = 'm5 8 6 6m-7-6 6-6 2-3M2 5h12M7 7h2m8 6 3 9h2l3-9m-8 0h6m-3 9v-6';
 </script>
 
 <template>
@@ -31,7 +31,7 @@ const globePath = 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <path :d="globePath" />
+      <path :d="langPath" />
     </svg>
     <span
       class="absolute -bottom-[2px] right-[1px] text-[7px] font-bold uppercase leading-none opacity-70"
