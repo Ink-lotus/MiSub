@@ -33,8 +33,5 @@ const langPath = 'm5 8 6 6m-7-6 6-6 2-3M2 5h12M7 7h2m8 6 3 9h2l3-9m-8 0h6m-3 9v-
     >
       <path :d="langPath" />
     </svg>
-    <span
-      class="absolute -bottom-[2px] right-[1px] text-[7px] font-bold uppercase leading-none opacity-70"
-    >{{ isZh ? '中' : 'EN' }}</span>
-  </button>
+    </button>
 </template>
