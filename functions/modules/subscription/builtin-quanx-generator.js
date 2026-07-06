@@ -284,7 +284,7 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
 
     const levelKey = (ruleLevel || 'std').toUpperCase();
     const policyFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-    let abstractGroups = policyFactory(proxiesWithMetadata);
+    let abstractGroups = policyFactory(proxiesWithMetadata, options);
     abstractGroups = pruneProxyGroups(abstractGroups, proxiesWithMetadata);
 
     const groupIcons = {

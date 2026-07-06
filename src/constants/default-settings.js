@@ -73,6 +73,7 @@ prependGroupName: false
         }
     },
     nodeTransformPresets: [],
+    regionOverrides: [],
     // 公告设置
     announcement: {
         enabled: true,            // 是否启用公告

@@ -465,7 +465,7 @@ dns-server = 119.29.29.29, 223.5.5.5, system`);
     }));
     
     // 生成策略组
-    let abstractGroups = policyFactory(proxiesForGrouping);
+    let abstractGroups = policyFactory(proxiesForGrouping, options);
     if (levelKey === 'RELAY') {
         abstractGroups = abstractGroups.map(group => group.name === '🔗 链式代理'
             ? { ...group, type: 'relay', proxies: ['入口节点', '落地节点'] }

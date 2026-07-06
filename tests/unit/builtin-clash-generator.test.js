@@ -72,4 +72,21 @@ describe('Clash 内置生成器', () => {
         expect(proxy.password).toBe('p@ss:word');
         expect(proxy.alpn).toEqual(['h3']);
     });
+
+    it('应将用户自定义地区覆盖规则应用到内置策略组', () => {
+        const nodes = [
+            'trojan://password@1.2.3.4:443#机场A 新加坡 原生',
+            'trojan://password@1.2.3.5:443#机场A US-West'
+        ].join('\n');
+
+        const fullConfig = yaml.load(generateBuiltinClashConfig(nodes, {
+            regionOverrides: [{ pattern: '新加坡 原生', region: '美国' }]
+        }));
+        const usGroup = fullConfig['proxy-groups'].find(group => group.name === '🇺🇸 美国节点');
+        const sgGroup = fullConfig['proxy-groups'].find(group => group.name === '🇸🇬 狮城节点');
+
+        expect(usGroup.proxies).toContain('🇸🇬 机场A 新加坡 原生');
+        expect(usGroup.proxies).toContain('🇺🇸 机场A US-West');
+        expect(sgGroup).toBeUndefined();
+    });
 });

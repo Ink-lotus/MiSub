@@ -14,9 +14,9 @@ export const MANUAL_SELECT_GROUP = '👋 手动切换';
  * @param {Object[]} proxies 
  * @returns {Array} 地区分组数据
  */
-function generateRegionData(proxies) {
+function generateRegionData(proxies, options = {}) {
     // [智能升级] 直接传递代理对象数组，region-groups 现在能识别 metadata
-    return groupNodeLinesByRegion(proxies);
+    return groupNodeLinesByRegion(proxies, options);
 }
 
 /**
@@ -69,8 +69,8 @@ export function pruneProxyGroups(proxyGroups, proxies) {
 /**
  * 内部辅助：生成地区相关的策略组定义
  */
-function _generateRegionGroups(proxies) {
-    const regions = groupNodeLinesByRegion(proxies);
+function _generateRegionGroups(proxies, options = {}) {
+    const regions = generateRegionData(proxies, options);
     const regionSelectGroups = [];   // 地区选择组（顶级按钮）
     const regionSupportGroups = []; // 地区辅助组（隐藏/末尾）
     const regionNames = [];
@@ -105,7 +105,7 @@ function _generateRegionGroups(proxies) {
  */
 export const POLICY_GROUPS = {
     // 基础配置：精简版
-    BASE: (proxies) => {
+    BASE: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
         return [
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
@@ -115,9 +115,9 @@ export const POLICY_GROUPS = {
         ];
     },
     // 标准配置：全能型
-    STD: (proxies) => {
+    STD: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
-        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies);
+        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
@@ -135,9 +135,9 @@ export const POLICY_GROUPS = {
         ];
     },
     // 完整配置：细化分类
-    FULL: (proxies) => {
+    FULL: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
-        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies);
+        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
@@ -158,9 +158,9 @@ export const POLICY_GROUPS = {
         ];
     },
     // 链式代理：中转优化
-    RELAY: (proxies) => {
+    RELAY: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
-        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies);
+        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
             { name: DEFAULT_RELAY_GROUP, type: 'select', proxies: ['🔗 链式代理', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, '🚀 常用节点', ...regionNames, 'DIRECT'] },

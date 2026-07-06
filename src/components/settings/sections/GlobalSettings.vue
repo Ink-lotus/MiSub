@@ -36,6 +36,20 @@ function ensureDefaults() {
   if (!Array.isArray(props.settings.defaultOperators)) {
     props.settings.defaultOperators = [];
   }
+
+  if (!Array.isArray(props.settings.regionOverrides)) {
+    props.settings.regionOverrides = [];
+  }
+}
+
+function addRegionOverride() {
+  ensureDefaults();
+  props.settings.regionOverrides.push({ pattern: '', region: '美国', flags: 'i' });
+}
+
+function removeRegionOverride(index) {
+  ensureDefaults();
+  props.settings.regionOverrides.splice(index, 1);
 }
 
 watch(() => props.settings, ensureDefaults, { immediate: true });
@@ -112,6 +126,37 @@ watch(() => props.settings, ensureDefaults, { immediate: true });
             <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-400">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" /></svg>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Region Overrides -->
+    <div class="rounded-xl border border-gray-100 bg-white/90 p-6 shadow-sm dark:border-white/10 dark:bg-gray-900/70">
+      <div class="flex items-start justify-between gap-3">
+        <SectionHeader :title="t('settings.regionOverridesTitle')" :description="t('settings.regionOverridesDesc')" tone="purple">
+          <template #icon>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
+          </template>
+        </SectionHeader>
+        <button type="button" @click="addRegionOverride" class="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-700 transition-colors">
+          {{ t('settings.regionOverrideAdd') }}
+        </button>
+      </div>
+
+      <div v-if="!settings.regionOverrides.length" class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
+        {{ t('settings.regionOverridesEmpty') }}
+      </div>
+
+      <div v-else class="mt-4 space-y-3">
+        <div v-for="(rule, index) in settings.regionOverrides" :key="index" class="grid grid-cols-1 gap-3 rounded-lg border border-gray-100 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-800/50 md:grid-cols-[1fr_160px_96px_auto]">
+          <Input v-model="rule.pattern" :label="t('settings.regionOverridePattern')" :placeholder="t('settings.regionOverridePatternPlaceholder')" />
+          <Input v-model="rule.region" :label="t('settings.regionOverrideRegion')" :placeholder="t('settings.regionOverrideRegionPlaceholder')" />
+          <Input v-model="rule.flags" :label="t('settings.regionOverrideFlags')" placeholder="i" />
+          <div class="flex items-end">
+            <button type="button" @click="removeRegionOverride(index)" class="w-full rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10">
+              {{ t('common.delete') }}
+            </button>
           </div>
         </div>
       </div>

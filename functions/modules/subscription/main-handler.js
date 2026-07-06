@@ -776,6 +776,7 @@ export async function handleMisubRequest(context) {
                     enableUdp: shouldEnableUdp,
                     enableTfo: urlTfo === 'true' || urlTfo === '1',
                     ruleLevel,
+                    regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
                     isMeta: isMetaCore(userAgentHeader, url.searchParams)
                 };
                 const rendered = await ProcessorService.renderOutput({
@@ -941,6 +942,7 @@ export async function handleMisubRequest(context) {
         enableUdp: finalEnableUdp,
         enableTfo: finalEnableTfo,
         ruleLevel: ruleLevel, // 统一后的规则等级
+        regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
         isMeta: isMetaCore(userAgentHeader, url.searchParams)
     };
 

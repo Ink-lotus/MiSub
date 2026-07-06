@@ -325,7 +325,7 @@ resource-parser = https://raw.githubusercontent.com/sub-store-org/Sub-Store/mast
 
     const levelKey = (ruleLevel || 'std').toUpperCase();
     const policyFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-    let abstractGroups = policyFactory(proxiesWithMetadata);
+    let abstractGroups = policyFactory(proxiesWithMetadata, options);
     if (levelKey === 'RELAY') {
         abstractGroups = abstractGroups.map(group => group.name === '🔗 链式代理'
             ? { ...group, type: 'relay', proxies: ['入口节点', '落地节点'] }

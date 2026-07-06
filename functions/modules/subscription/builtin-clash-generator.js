@@ -174,7 +174,7 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
 
         // 生成策略组并执行引用修剪
         const policyGroupsFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-        let proxyGroups = policyGroupsFactory(proxies);
+        let proxyGroups = policyGroupsFactory(proxies, options);
         proxyGroups = pruneProxyGroups(proxyGroups, proxies);
         
         // 提取远程 Provider 定义。Hiddify 4.x 的 Clash 转 sing-box 解析对 rule-providers 兼容性较差，

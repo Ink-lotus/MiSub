@@ -286,7 +286,7 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     const levelKey = (ruleLevel || 'std').toUpperCase();
     // 获取内置策略组
     const policyGroupsFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-    let proxyGroups = policyGroupsFactory(outbounds);
+    let proxyGroups = policyGroupsFactory(outbounds, options);
     proxyGroups = pruneProxyGroups(proxyGroups, outbounds);
 
     if (levelKey === 'RELAY') {

@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
         prependGroupName: false
     },
     defaultOperators: [], // 新版操作符链式处理 (New Unified Pipeline)
+    regionOverrides: [], // 自定义节点地区覆盖规则：{ pattern, region, flags }
     // @deprecated 使用 defaultOperators 代替
     defaultNodeTransform: {
         enabled: false,
