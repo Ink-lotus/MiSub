@@ -227,10 +227,13 @@ export async function onRequest(context) {
 
                 const customLoginPath = normalizeLoginPath(settings?.customLoginPath);
                 const defaultLoginPath = '/login';
+                const hasCustomLoginPath = customLoginPath !== defaultLoginPath;
 
                 // SPA 路由白名单：这些请求应该交由前端路由处理，而不是作为订阅请求
                 // [修复] 增加更多可能的SPA路由，防止被误判为订阅请求
                 // [新增] 动态包含自定义登录路径
+                // [Fix #400] 当设置了自定义登录路径时，/login 不再作为 SPA 路由，
+                // 应直接返回 404 / disguise 页面以避免暴露自定义路径。
                 const isSpaRoute = [
                     '/',
                     '/dashboard',
@@ -245,6 +248,13 @@ export async function onRequest(context) {
                     return url.pathname === route || url.pathname.startsWith(route + '/');
                 });
 
+                // [Fix #400] 设置了自定义路径后，/login 不再是有效 SPA 路由
+                const isLoginPath = url.pathname === '/login';
+                if (hasCustomLoginPath && isLoginPath) {
+                    return createDisguiseResponse(settings?.disguise, request.url)
+                        || new Response('Not Found', { status: 404 });
+                }
+
                 const isProtectedSpaRoute = isSpaRoute
                     && url.pathname !== '/'
                     && url.pathname !== '/login'
@@ -255,12 +265,9 @@ export async function onRequest(context) {
                 // If accessing a protected route without auth, redirect to login
                 // [Fix] Exclude /explore from auth check
                 // [Fix] Skip auth check on localhost to avoid port 8787/5173 sync issues during dev
-                if (customLoginPath !== defaultLoginPath && url.pathname === defaultLoginPath && !isLocalhost) {
-                    return new Response(null, {
-                        status: 302,
-                        headers: { Location: customLoginPath }
-                    });
-                }
+                // [Fix #400] When custom login path is set, accessing /login should NOT
+                // redirect to the custom path (that would expose the hidden admin URL).
+                // Instead return 404 so the custom path stays concealed.
 
                 if (isProtectedSpaRoute && !isLocalhost) {
                     const isAuthenticated = await authMiddleware(request, env);

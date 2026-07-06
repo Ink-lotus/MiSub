@@ -59,15 +59,18 @@ describe('MiSub i18n contract', () => {
       }
     });
 
-    expect(wrapper.get('select').element.value).toBe('zh-CN');
-    expect(wrapper.text()).toContain('简体中文');
+    // Language switcher is now an icon button (not a <select>).
+    // The button has no visible text — locale info is in title/aria-label.
+    const button = wrapper.get('button');
+    expect(button.attributes('aria-label')).toContain('English');
 
-    await wrapper.get('select').setValue('en-US');
+    await button.trigger('click');
     await nextTick();
 
     expect(appI18n.locale.value).toBe('en-US');
     expect(localStorage.getItem('misub:locale')).toBe('en-US');
-    expect(wrapper.text()).toContain('English');
+    // After toggling to en-US the button title switches to Chinese.
+    expect(button.attributes('aria-label')).toContain('中文');
   });
 
   it('exposes the shared singleton for non-component code', () => {
