@@ -20,6 +20,22 @@ describe('Built-in Sing-box generator', () => {
         expect(parsed.route.final).toContain('节点选择');
     });
 
+    it('should include a tun inbound for sing-box Android client deployment', () => {
+        const result = generateBuiltinSingboxConfig('trojan://password@1.2.3.4:443#AndroidNode');
+        const parsed = JSON.parse(result);
+
+        expect(parsed.inbounds).toEqual([
+            expect.objectContaining({
+                type: 'tun',
+                tag: 'tun-in',
+                auto_route: true,
+                strict_route: true,
+                stack: 'mixed'
+            })
+        ]);
+        expect(parsed.inbounds[0].address).toEqual(expect.arrayContaining(['172.19.0.1/30']));
+    });
+
     it('should enable TLS for https and socks5-tls', () => {
         const result = generateBuiltinSingboxConfig([
             'https://user:pass@1.2.3.4:443#HttpsNode',

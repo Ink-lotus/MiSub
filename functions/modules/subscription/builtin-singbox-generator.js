@@ -361,6 +361,16 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
                 { tag: 'doh-cloudflare', address: 'https://1.1.1.1/dns-query', detour: DEFAULT_SELECT_GROUP }
             ]
         },
+        inbounds: [
+            {
+                type: 'tun',
+                tag: 'tun-in',
+                address: ['172.19.0.1/30'],
+                auto_route: true,
+                strict_route: true,
+                stack: 'mixed'
+            }
+        ],
         outbounds: [
             { tag: 'DIRECT', type: 'direct' },
             { tag: 'REJECT', type: 'block' },
