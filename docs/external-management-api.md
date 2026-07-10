@@ -9,6 +9,7 @@
 - `functions/modules/external-profiles-handler.js`
 - `functions/modules/external-preview-handler.js`
 - OpenAPI 文件：`docs/external-management-api.openapi.yaml`
+- 使用说明：`docs/external-management-api-usage.md`
 
 ## 1. 目标与边界
 

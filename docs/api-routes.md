@@ -126,6 +126,7 @@
 - 认证：`functions/modules/external-api-auth.js`
 - 文档：
   - `docs/external-management-api.md`
+  - `docs/external-management-api-usage.md`
   - `docs/external-management-api.openapi.yaml`
 - 认证要求：
   - `settings.externalApi.enabled === true`
