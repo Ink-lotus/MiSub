@@ -177,10 +177,10 @@ describe('settings page English translations', () => {
     expectNoChineseOrKeys(rules.text());
   });
 
-  it('renders SystemSettings storage backup and admin security copy in English', () => {
+  it('renders SystemSettings storage backup external api and admin security copy in English', () => {
     const wrapper = mount(SystemSettings, {
       props: {
-        settings: { storageType: 'd1' },
+        settings: { storageType: 'd1', externalApi: { enabled: true, tokens: [{ name: 'default', token: 'secret' }] } },
         exportBackup: vi.fn(),
         importBackup: vi.fn(),
         handleReset: vi.fn()
@@ -190,6 +190,9 @@ describe('settings page English translations', () => {
 
     expect(wrapper.text()).toContain('Data storage type');
     expect(wrapper.text()).toContain('D1 database (recommended)');
+    expect(wrapper.text()).toContain('External management API');
+    expect(wrapper.text()).toContain('Bearer token');
+    expect(wrapper.text()).toContain('Generate random token');
     expect(wrapper.text()).toContain('Backup and restore');
     expect(wrapper.text()).toContain('Export backup');
     expect(wrapper.text()).toContain('Administrator security settings');

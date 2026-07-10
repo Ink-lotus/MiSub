@@ -5,6 +5,31 @@ import { fetchSettings, saveSettings, resetSettings } from '../lib/api.js';
 import { useBackupLogic } from './useBackupLogic.js';
 import { t } from '../i18n/index.js';
 
+function normalizeExternalApiConfig(value) {
+    const defaults = DEFAULT_SETTINGS.externalApi;
+    const externalApi = value && typeof value === 'object' ? value : {};
+    const tokens = Array.isArray(externalApi.tokens)
+        ? externalApi.tokens
+            .map((item, index) => ({
+                name: String(item?.name || `token-${index + 1}`).trim() || `token-${index + 1}`,
+                token: String(item?.token || '').trim()
+            }))
+            .filter((item) => item.token || item.name)
+        : [];
+
+    return {
+        ...defaults,
+        ...externalApi,
+        tokens: tokens.length > 0 ? tokens : defaults.tokens.map((item) => ({ ...item }))
+    };
+}
+
+function normalizeSettingsObject(source = {}) {
+    const merged = { ...DEFAULT_SETTINGS, ...source };
+    merged.externalApi = normalizeExternalApiConfig(source.externalApi ?? merged.externalApi);
+    return merged;
+}
+
 /**
  * 设置页面的核心逻辑 composable
  * 用于 SettingsView.vue 和 SettingsPanel.vue 的代码复用
@@ -16,7 +41,7 @@ export function useSettingsLogic() {
     const { exportBackup, importBackup } = useBackupLogic();
 
     // ========== 状态定义 ==========
-    const settings = ref({ ...DEFAULT_SETTINGS });
+    const settings = ref(normalizeSettingsObject(DEFAULT_SETTINGS));
     const isLoading = ref(false);
     const isSaving = ref(false);
     const showMigrationModal = ref(false);
@@ -51,10 +76,8 @@ export function useSettingsLogic() {
             const result = await fetchSettings();
             if (result.success) {
                 const incoming = result.data && typeof result.data === 'object' ? result.data : {};
-                settings.value = { ...DEFAULT_SETTINGS, ...incoming };
+                settings.value = normalizeSettingsObject(incoming);
 
-                // 初始化前缀配置
-                // 初始化伪装配置
                 if (settings.value.disguise) {
                     disguiseConfig.value = {
                         enabled: settings.value.disguise.enabled ?? false,
@@ -63,17 +86,16 @@ export function useSettingsLogic() {
                     };
                 }
 
-                // 确保 storageType 有默认值
                 if (!settings.value.storageType) {
                     settings.value.storageType = 'kv';
                 }
             } else {
                 showToast(t('settings.loadFailedWithMessage', { message: result.error }), 'error');
-                settings.value = { ...DEFAULT_SETTINGS };
+                settings.value = normalizeSettingsObject(DEFAULT_SETTINGS);
             }
         } catch (error) {
             showToast(t('settings.loadFailed'), 'error');
-            settings.value = { ...DEFAULT_SETTINGS };
+            settings.value = normalizeSettingsObject(DEFAULT_SETTINGS);
         } finally {
             isLoading.value = false;
         }
@@ -95,9 +117,11 @@ export function useSettingsLogic() {
         isSaving.value = true;
         try {
             if (!settings.value.storageType) settings.value.storageType = 'kv';
+            settings.value.externalApi = normalizeExternalApiConfig(settings.value.externalApi);
 
             const settingsToSave = {
                 ...settings.value,
+                externalApi: normalizeExternalApiConfig(settings.value.externalApi),
                 disguise: disguiseConfig.value
             };
 
@@ -161,20 +185,14 @@ export function useSettingsLogic() {
         }
     };
 
-    // 备份函数由 useBackupLogic 提供
-
-    // ========== 返回值 ==========
     return {
-        // 状态
         settings,
         disguiseConfig,
         isLoading,
         isSaving,
         showMigrationModal,
-        // 计算属性
         hasWhitespace,
         isStorageTypeValid,
-        // 函数
         loadSettings,
         handleSave,
         handleMigrationSuccess,

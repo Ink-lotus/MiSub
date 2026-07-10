@@ -105,6 +105,15 @@ prependGroupName: false
         lastBackupMessage: '',
         lastBackupFile: ''
     },
+    externalApi: {
+        enabled: false,
+        tokens: [
+            {
+                name: 'default',
+                token: ''
+            }
+        ]
+    },
     // 订阅转换设置
     subconverter: {
         engineMode: 'builtin',
