@@ -9,7 +9,7 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-green.svg)](https://vuejs.org/)
 [![Version](https://img.shields.io/badge/version-v2.7.0-indigo.svg)](#-更新日志)
 
-[功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [使用说明](#-使用说明) • [Wiki 文档](docs/OPERATOR_CHAIN_GUIDE.md) • [v2.5.0 升级指南](docs/UPGRADE_V2.5.md) • [更新日志](#-更新日志)
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [使用说明](#-使用说明) • [External API 使用说明](docs/external-management-api-usage.md) • [Wiki 文档](docs/OPERATOR_CHAIN_GUIDE.md) • [v2.5.0 升级指南](docs/UPGRADE_V2.5.md) • [更新日志](#-更新日志)
 
 </div>
 
@@ -391,6 +391,16 @@ MiSub 提供 `/cron` 接口用于外部定时服务触发订阅刷新，适合 C
 - **部署平台**: 仅 Cloudflare Pages
 
 ---
+
+## 📚 文档索引
+
+- [External API 使用说明](docs/external-management-api-usage.md)
+- [External API 接口总览](docs/external-management-api.md)
+- [External API OpenAPI 规范](docs/external-management-api.openapi.yaml)
+- [操作符链指南](docs/OPERATOR_CHAIN_GUIDE.md)
+- [v2.5.0 升级指南](docs/UPGRADE_V2.5.md)
+- [架构说明](docs/architecture.md)
+- [数据模型](docs/data-model.md)
 
 ## 📝 更新日志
 

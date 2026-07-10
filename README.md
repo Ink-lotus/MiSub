@@ -180,6 +180,9 @@ See [Operator Chain Guide](docs/OPERATOR_CHAIN_GUIDE.md) for details.
 ## Documentation
 
 - [Chinese README](README-zh.md)
+- [External API Usage Guide](docs/external-management-api-usage.md)
+- [External API Reference](docs/external-management-api.md)
+- [External API OpenAPI Spec](docs/external-management-api.openapi.yaml)
 - [Operator Chain Guide](docs/OPERATOR_CHAIN_GUIDE.md)
 - [v2.5.0 Upgrade Guide](docs/UPGRADE_V2.5.md)
 - [Architecture](docs/architecture.md)
