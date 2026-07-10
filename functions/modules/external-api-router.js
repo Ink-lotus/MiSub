@@ -18,6 +18,22 @@ export async function handleExternalApiRequest(request, env) {
     return await handleExternalSubscriptionsRequest(request, env);
   }
 
+  if (path === '/subscriptions/validate') {
+    return await handleExternalSubscriptionsRequest(request, env, { action: 'validate' });
+  }
+
+  if (path === '/subscriptions/batch-refresh') {
+    return await handleExternalSubscriptionsRequest(request, env, { action: 'batch_refresh' });
+  }
+
+  const subscriptionRefreshMatch = path.match(/^\/subscriptions\/([^/]+)\/refresh$/);
+  if (subscriptionRefreshMatch) {
+    return await handleExternalSubscriptionsRequest(request, env, {
+      id: decodeURIComponent(subscriptionRefreshMatch[1]),
+      action: 'refresh'
+    });
+  }
+
   const subscriptionMatch = path.match(/^\/subscriptions\/([^/]+)$/);
   if (subscriptionMatch) {
     return await handleExternalSubscriptionsRequest(request, env, decodeURIComponent(subscriptionMatch[1]));

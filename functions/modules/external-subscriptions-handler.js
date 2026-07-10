@@ -11,6 +11,8 @@ import {
   sortBySortIndex
 } from './external-api-utils.js';
 import { isRemoteSubscription, toExternalSubscription } from './external-api-mappers.js';
+import { handleNodeCountRequest } from './handlers/node-handler.js';
+import { getProcessedUserAgent } from '../utils/format-utils.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -51,9 +53,159 @@ async function removeSubscriptionIdFromProfiles(storageAdapter, id) {
   return affected;
 }
 
-export async function handleExternalSubscriptionsRequest(request, env, id = null) {
+function createNodeCountRequest(body) {
+  return new Request('https://misub.internal/api/node_count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+function normalizeSubscriptionRuntimeFields(item = {}) {
+  return {
+    userAgent: String(item.customUserAgent || item.userAgent || '').trim(),
+    fetchProxy: String(item.fetchProxy || item.proxy || '').trim(),
+    plusAsSpace: item.plusAsSpace === true
+  };
+}
+
+async function inspectRemoteSubscription(env, payload = {}) {
+  const requestedUrl = String(payload.url || '').trim();
+  if (!requestedUrl) return { ok: false, errorCode: 'subscription_url_required', message: 'Subscription URL is required', status: 400 };
+  if (!/^https?:\/\//i.test(requestedUrl)) return { ok: false, errorCode: 'invalid_subscription_url', message: 'Subscription URL must use http or https', status: 400 };
+
+  const runtime = normalizeSubscriptionRuntimeFields(payload);
+  const effectiveUserAgent = runtime.userAgent || getProcessedUserAgent('MiSub-External-Validate/1.0', requestedUrl);
+  const response = await handleNodeCountRequest(createNodeCountRequest({
+    url: requestedUrl,
+    userAgent: effectiveUserAgent,
+    fetchProxy: runtime.fetchProxy,
+    plusAsSpace: runtime.plusAsSpace
+  }), env);
+  const body = await response.json();
+
+  if (body?.success && body?.data) {
+    return {
+      ok: true,
+      requestedUrl,
+      effectiveUserAgent,
+      fetchProxyUsed: runtime.fetchProxy || '',
+      plusAsSpace: runtime.plusAsSpace,
+      nodeCount: Number(body.data.count) || 0,
+      userInfo: body.data.userInfo || null
+    };
+  }
+
+  return {
+    ok: false,
+    requestedUrl,
+    effectiveUserAgent,
+    fetchProxyUsed: runtime.fetchProxy || '',
+    plusAsSpace: runtime.plusAsSpace,
+    nodeCount: Number(body?.count) || 0,
+    userInfo: body?.userInfo || null,
+    errorCode: 'subscription_refresh_failed',
+    message: body?.error || 'Subscription refresh failed',
+    status: Number(body?.status) || 502
+  };
+}
+
+async function persistSubscriptionRefresh(storageAdapter, current, inspection) {
+  const timestamp = nowIso();
+  const updated = {
+    ...current,
+    nodeCount: inspection.ok ? inspection.nodeCount : 0,
+    userInfo: inspection.ok ? inspection.userInfo : (inspection.userInfo || null),
+    lastError: inspection.ok ? '' : inspection.message,
+    lastUpdate: timestamp,
+    updatedAt: timestamp
+  };
+  await storageAdapter.putSubscription(updated);
+  return updated;
+}
+
+export async function handleExternalSubscriptionsRequest(request, env, selector = null) {
   const storageAdapter = await getExternalStorageAdapter(env);
   const url = new URL(request.url);
+  const action = typeof selector === 'object' && selector ? selector.action || null : null;
+  const id = typeof selector === 'object' && selector ? selector.id || null : selector;
+
+  if (action === 'validate') {
+    if (request.method !== 'POST') return createExternalError('method_not_allowed', 'Method Not Allowed', 405);
+    const payload = await readExternalJson(request);
+    const inspection = await inspectRemoteSubscription(env, payload);
+    if (!inspection.ok) {
+      return createExternalError(inspection.errorCode || 'subscription_validation_failed', inspection.message || 'Subscription validation failed', inspection.status || 400, {
+        requestedUrl: inspection.requestedUrl || String(payload?.url || '').trim(),
+        effectiveUserAgent: inspection.effectiveUserAgent || '',
+        nodeCount: inspection.nodeCount || 0,
+        userInfo: inspection.userInfo || null
+      });
+    }
+    return createExternalSuccess({
+      valid: true,
+      requestedUrl: inspection.requestedUrl,
+      effectiveUserAgent: inspection.effectiveUserAgent,
+      fetchProxyUsed: inspection.fetchProxyUsed,
+      plusAsSpace: inspection.plusAsSpace,
+      nodeCount: inspection.nodeCount,
+      userInfo: inspection.userInfo,
+      checkedAt: nowIso()
+    });
+  }
+
+  if (action === 'batch_refresh') {
+    if (request.method !== 'POST') return createExternalError('method_not_allowed', 'Method Not Allowed', 405);
+    const payload = await readExternalJson(request);
+    const subscriptionIds = normalizeStringArray(payload?.subscriptionIds);
+    if (!subscriptionIds.length) return createExternalError('subscription_ids_required', 'subscriptionIds is required', 400);
+
+    const all = await loadRemoteSubscriptions(storageAdapter);
+    const targets = all.filter(item => subscriptionIds.includes(item.id));
+    if (!targets.length) return createExternalError('subscription_not_found', 'Subscription not found', 404);
+
+    const results = [];
+    for (const current of targets) {
+      const inspection = await inspectRemoteSubscription(env, current);
+      const updated = await persistSubscriptionRefresh(storageAdapter, current, inspection);
+      results.push({
+        id: updated.id,
+        name: updated.name || '',
+        success: inspection.ok,
+        nodeCount: Number(updated.nodeCount) || 0,
+        userInfo: updated.userInfo || null,
+        lastError: updated.lastError || '',
+        lastUpdated: updated.lastUpdate || null
+      });
+    }
+
+    return createExternalSuccess({
+      results,
+      summary: {
+        total: results.length,
+        succeeded: results.filter(item => item.success).length,
+        failed: results.filter(item => !item.success).length,
+        totalNodes: results.filter(item => item.success).reduce((sum, item) => sum + (Number(item.nodeCount) || 0), 0)
+      }
+    });
+  }
+
+  if (action === 'refresh') {
+    if (request.method !== 'POST') return createExternalError('method_not_allowed', 'Method Not Allowed', 405);
+    const current = await getSubscriptionById(storageAdapter, id);
+    if (!current) return createExternalError('subscription_not_found', 'Subscription not found', 404);
+    const inspection = await inspectRemoteSubscription(env, current);
+    const updated = await persistSubscriptionRefresh(storageAdapter, current, inspection);
+    return createExternalSuccess({
+      id: updated.id,
+      name: updated.name || '',
+      success: inspection.ok,
+      nodeCount: Number(updated.nodeCount) || 0,
+      userInfo: updated.userInfo || null,
+      lastError: updated.lastError || '',
+      lastUpdated: updated.lastUpdate || null
+    });
+  }
 
   if (request.method === 'GET' && !id) {
     const all = await loadRemoteSubscriptions(storageAdapter);
@@ -99,7 +251,9 @@ export async function handleExternalSubscriptionsRequest(request, env, id = null
       group: String(payload.group || '').trim(),
       tags: normalizeStringArray(payload.tags),
       userAgent: String(payload.userAgent || '').trim(),
+      customUserAgent: String(payload.userAgent || '').trim(),
       proxy: String(payload.proxy || '').trim(),
+      fetchProxy: String(payload.proxy || '').trim(),
       sortIndex: Number.isFinite(Number(payload.sortIndex)) ? Number(payload.sortIndex) : nextSortIndex(all),
       createdAt: timestamp,
       updatedAt: timestamp
@@ -119,8 +273,8 @@ export async function handleExternalSubscriptionsRequest(request, env, id = null
       ...(payload.enabled !== undefined ? { enabled: payload.enabled !== false } : {}),
       ...(payload.group !== undefined ? { group: String(payload.group || '').trim() } : {}),
       ...(payload.tags !== undefined ? { tags: normalizeStringArray(payload.tags) } : {}),
-      ...(payload.userAgent !== undefined ? { userAgent: String(payload.userAgent || '').trim() } : {}),
-      ...(payload.proxy !== undefined ? { proxy: String(payload.proxy || '').trim() } : {}),
+      ...(payload.userAgent !== undefined ? { userAgent: String(payload.userAgent || '').trim(), customUserAgent: String(payload.userAgent || '').trim() } : {}),
+      ...(payload.proxy !== undefined ? { proxy: String(payload.proxy || '').trim(), fetchProxy: String(payload.proxy || '').trim() } : {}),
       ...(payload.sortIndex !== undefined ? { sortIndex: Number(payload.sortIndex) || 0 } : {}),
       updatedAt: nowIso()
     };
