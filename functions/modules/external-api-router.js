@@ -43,6 +43,10 @@ export async function handleExternalApiRequest(request, env) {
     return await handleExternalManualNodesRequest(request, env);
   }
 
+  if (path === '/manual-nodes/validate') {
+    return await handleExternalManualNodesRequest(request, env, { action: 'validate' });
+  }
+
   const manualNodeMatch = path.match(/^\/manual-nodes\/([^/]+)$/);
   if (manualNodeMatch) {
     return await handleExternalManualNodesRequest(request, env, decodeURIComponent(manualNodeMatch[1]));
@@ -56,6 +60,14 @@ export async function handleExternalApiRequest(request, env) {
   if (previewMatch) {
     if (request.method !== 'POST') return createExternalError('method_not_allowed', 'Method Not Allowed', 405);
     return await handleExternalPreviewRequest(request, env, decodeURIComponent(previewMatch[1]));
+  }
+
+  const profileRefreshMatch = path.match(/^\/profiles\/([^/]+)\/refresh$/);
+  if (profileRefreshMatch) {
+    return await handleExternalProfilesRequest(request, env, {
+      id: decodeURIComponent(profileRefreshMatch[1]),
+      action: 'refresh'
+    });
   }
 
   const profileRelationMatch = path.match(/^\/profiles\/([^/]+)\/(subscriptions|manual-nodes)$/);

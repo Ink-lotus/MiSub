@@ -69,7 +69,7 @@ function normalizeSubscriptionRuntimeFields(item = {}) {
   };
 }
 
-async function inspectRemoteSubscription(env, payload = {}) {
+export async function inspectRemoteSubscription(env, payload = {}) {
   const requestedUrl = String(payload.url || '').trim();
   if (!requestedUrl) return { ok: false, errorCode: 'subscription_url_required', message: 'Subscription URL is required', status: 400 };
   if (!/^https?:\/\//i.test(requestedUrl)) return { ok: false, errorCode: 'invalid_subscription_url', message: 'Subscription URL must use http or https', status: 400 };

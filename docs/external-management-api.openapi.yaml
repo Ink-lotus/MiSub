@@ -169,6 +169,97 @@ paths:
         '404':
           $ref: '#/components/responses/SubscriptionNotFound'
 
+  /subscriptions/validate:
+    post:
+      tags: [Subscriptions]
+      summary: 校验候选远程订阅源并返回节点诊断信息
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionValidateInput'
+      responses:
+        '200':
+          description: 校验成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionValidationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /subscriptions/{subscriptionId}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/SubscriptionId'
+    post:
+      tags: [Subscriptions]
+      summary: 刷新单个已存储远程订阅源并持久化运行时字段
+      responses:
+        '200':
+          description: 刷新完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionRefreshResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SubscriptionNotFound'
+
+  /subscriptions/batch-refresh:
+    post:
+      tags: [Subscriptions]
+      summary: 批量刷新多个已存储远程订阅源
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriptionIds]
+              properties:
+                subscriptionIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: 刷新完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionBatchRefreshResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SubscriptionNotFound'
+
   /manual-nodes:
     get:
       tags: [Manual Nodes]
@@ -314,6 +405,35 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/ManualNodeNotFound'
+
+  /manual-nodes/validate:
+    post:
+      tags: [Manual Nodes]
+      summary: 校验候选手动节点并返回本地解析结果
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualNodeValidateInput'
+      responses:
+        '200':
+          description: 校验成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ManualNodeValidationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /profiles:
     get:
@@ -626,6 +746,31 @@ paths:
         '404':
           $ref: '#/components/responses/ProfileNotFound'
 
+  /profiles/{profileId}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/ProfileId'
+    post:
+      tags: [Profiles]
+      summary: 刷新订阅组内引用的远程订阅源并返回聚合结果
+      responses:
+        '200':
+          description: 刷新完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProfileRefreshResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ProfileNotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -795,6 +940,14 @@ components:
           type: string
         proxy:
           type: string
+        nodeCount:
+          type: integer
+        userInfo:
+          $ref: '#/components/schemas/SubscriptionUserInfo'
+        lastError:
+          type: string
+        lastUpdate:
+          type: [string, 'null']
         sortIndex:
           type: integer
         createdAt:
@@ -845,6 +998,91 @@ components:
           type: string
         sortIndex:
           type: integer
+    SubscriptionValidateInput:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: 必须是 http:// 或 https:// URL
+        userAgent:
+          type: string
+        proxy:
+          type: string
+    SubscriptionUserInfo:
+      type: [object, 'null']
+      properties:
+        upload:
+          type: integer
+        download:
+          type: integer
+        total:
+          type: integer
+        expire:
+          type: integer
+    SubscriptionValidationResult:
+      type: object
+      required: [valid, requestedUrl, effectiveUserAgent, fetchProxyUsed, nodeCount, checkedAt]
+      properties:
+        valid:
+          type: boolean
+          const: true
+        requestedUrl:
+          type: string
+        effectiveUserAgent:
+          type: string
+        fetchProxyUsed:
+          type: string
+        nodeCount:
+          type: integer
+        userInfo:
+          $ref: '#/components/schemas/SubscriptionUserInfo'
+        checkedAt:
+          type: string
+    SubscriptionRefreshResult:
+      type: object
+      required: [subscription, refreshedAt]
+      properties:
+        subscription:
+          $ref: '#/components/schemas/Subscription'
+        refreshedAt:
+          type: string
+    SubscriptionBatchRefreshItem:
+      type: object
+      required: [id, success, nodeCount, lastError, refreshedAt]
+      properties:
+        id:
+          type: string
+        success:
+          type: boolean
+        nodeCount:
+          type: integer
+        userInfo:
+          $ref: '#/components/schemas/SubscriptionUserInfo'
+        lastError:
+          type: string
+        refreshedAt:
+          type: string
+    SubscriptionBatchRefreshResult:
+      type: object
+      required: [results, summary]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionBatchRefreshItem'
+        summary:
+          type: object
+          required: [total, succeeded, failed, totalNodes]
+          properties:
+            total:
+              type: integer
+            succeeded:
+              type: integer
+            failed:
+              type: integer
+            totalNodes:
+              type: integer
     ManualNode:
       type: object
       required: [id, type, name, url, protocol, enabled, group, tags, remarks, sortIndex, createdAt, updatedAt]
@@ -916,6 +1154,48 @@ components:
           type: string
         sortIndex:
           type: integer
+    ManualNodeValidateInput:
+      type: object
+      required: [url]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          description: 必须是受支持的节点协议 URL，如 vless://、trojan://、ss://
+    ParsedManualNode:
+      type: object
+      required: [url, protocol, name]
+      properties:
+        url:
+          type: string
+        protocol:
+          type: string
+        name:
+          type: string
+        warning:
+          type: [object, 'null']
+        metadata:
+          type: [object, 'null']
+    ManualNodeValidationResult:
+      type: object
+      required: [valid, requestedName, requestedUrl, protocol, nodeCount, parsedNode, checkedAt]
+      properties:
+        valid:
+          type: boolean
+          const: true
+        requestedName:
+          type: string
+        requestedUrl:
+          type: string
+        protocol:
+          type: string
+        nodeCount:
+          type: integer
+        parsedNode:
+          $ref: '#/components/schemas/ParsedManualNode'
+        checkedAt:
+          type: string
     Profile:
       type: object
       required: [id, name, description, enabled, isPublic, customId, subscriptionIds, manualNodeIds, target, sortIndex, createdAt, updatedAt]
@@ -1000,6 +1280,48 @@ components:
           type: string
         sortIndex:
           type: integer
+    ProfileRefreshItem:
+      type: object
+      required: [id, name, success, nodeCount, lastError, lastUpdated]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        success:
+          type: boolean
+        nodeCount:
+          type: integer
+        userInfo:
+          $ref: '#/components/schemas/SubscriptionUserInfo'
+        lastError:
+          type: string
+        lastUpdated:
+          type: [string, 'null']
+    ProfileRefreshResult:
+      type: object
+      required: [profile, results, summary]
+      properties:
+        profile:
+          $ref: '#/components/schemas/Profile'
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileRefreshItem'
+        summary:
+          type: object
+          required: [totalSubscriptions, refreshedSubscriptions, failedSubscriptions, manualNodes, totalNodes]
+          properties:
+            totalSubscriptions:
+              type: integer
+            refreshedSubscriptions:
+              type: integer
+            failedSubscriptions:
+              type: integer
+            manualNodes:
+              type: integer
+            totalNodes:
+              type: integer
     DeleteResult:
       type: object
       required: [deleted, id]

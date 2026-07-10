@@ -11,6 +11,7 @@ import {
   sortBySortIndex
 } from './external-api-utils.js';
 import { detectNodeProtocol, isManualNode, toExternalManualNode } from './external-api-mappers.js';
+import { parseNodeList } from './utils/node-parser.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -51,9 +52,30 @@ async function removeManualNodeIdFromProfiles(storageAdapter, id) {
   return affected;
 }
 
-export async function handleExternalManualNodesRequest(request, env, id = null) {
+export async function handleExternalManualNodesRequest(request, env, selector = null) {
   const storageAdapter = await getExternalStorageAdapter(env);
   const url = new URL(request.url);
+  const action = typeof selector === 'object' && selector ? selector.action || null : null;
+  const id = typeof selector === 'object' && selector ? selector.id || null : selector;
+
+  if (action === 'validate') {
+    if (request.method !== 'POST') return createExternalError('method_not_allowed', 'Method Not Allowed', 405);
+    const payload = await readExternalJson(request);
+    const candidateUrl = String(payload?.url || '').trim();
+    if (!candidateUrl) return createExternalError('manual_node_url_required', 'Manual node URL is required', 400);
+    if (!isManualNode({ url: candidateUrl })) return createExternalError('invalid_manual_node_url', 'Manual node URL must use a supported node protocol', 400);
+    const parsedNodes = parseNodeList(candidateUrl);
+    if (!parsedNodes.length) return createExternalError('invalid_manual_node_url', 'Manual node URL must use a supported node protocol', 400);
+    return createExternalSuccess({
+      valid: true,
+      requestedName: String(payload?.name || '').trim(),
+      requestedUrl: candidateUrl,
+      protocol: detectNodeProtocol(candidateUrl),
+      nodeCount: parsedNodes.length,
+      parsedNode: parsedNodes[0],
+      checkedAt: nowIso()
+    });
+  }
 
   if (request.method === 'GET' && !id) {
     const all = await loadManualNodes(storageAdapter);

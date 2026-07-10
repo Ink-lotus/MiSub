@@ -155,9 +155,12 @@ Content-Type: application/json
 
 - `GET /subscriptions`
 - `POST /subscriptions`
+- `POST /subscriptions/validate`
+- `POST /subscriptions/batch-refresh`
 - `GET /subscriptions/:subscriptionId`
 - `PATCH /subscriptions/:subscriptionId`
 - `DELETE /subscriptions/:subscriptionId`
+- `POST /subscriptions/:subscriptionId/refresh`
 
 支持查询参数：
 
@@ -171,6 +174,7 @@ Content-Type: application/json
 
 - `GET /manual-nodes`
 - `POST /manual-nodes`
+- `POST /manual-nodes/validate`
 - `GET /manual-nodes/:manualNodeId`
 - `PATCH /manual-nodes/:manualNodeId`
 - `DELETE /manual-nodes/:manualNodeId`
@@ -196,6 +200,7 @@ Content-Type: application/json
 - `POST /profiles/:profileId/manual-nodes`
 - `DELETE /profiles/:profileId/manual-nodes`
 - `POST /profiles/:profileId/preview`
+- `POST /profiles/:profileId/refresh`
 
 列表支持查询参数：
 
@@ -219,9 +224,18 @@ Content-Type: application/json
   "tags": ["prod"],
   "userAgent": "",
   "proxy": "",
+  "nodeCount": 128,
+  "userInfo": {
+    "upload": 1024,
+    "download": 2048,
+    "total": 4096,
+    "expire": 1790000000
+  },
+  "lastError": "",
+  "lastUpdate": "2026-07-10T18:05:00.000Z",
   "sortIndex": 1,
   "createdAt": "2026-07-10T18:00:00.000Z",
-  "updatedAt": "2026-07-10T18:00:00.000Z"
+  "updatedAt": "2026-07-10T18:05:00.000Z"
 }
 ```
 
@@ -292,7 +306,84 @@ Content-Type: application/json
 
 这些接口不会 merge 非目标字段，只更新对应引用数组。
 
-### 7.3 preview 是轻量预览，不拉远程订阅内容
+### 7.3 validate / refresh 系列接口会读取真实运行时信息
+
+#### `POST /subscriptions/validate`
+
+用于第三方在创建/更新前校验候选远程订阅源：
+
+- 只接受 `http://` / `https://` URL
+- 会实际请求远程订阅内容
+- 会尝试解析节点数量
+- 会读取 `subscription-userinfo`
+- 不写入存储
+
+返回核心字段：
+
+- `valid`
+- `requestedUrl`
+- `effectiveUserAgent`
+- `fetchProxyUsed`
+- `nodeCount`
+- `userInfo`
+- `checkedAt`
+
+#### `POST /subscriptions/:id/refresh`
+
+刷新单个已存储远程订阅源，并持久化：
+
+- `nodeCount`
+- `userInfo`
+- `lastError`
+- `lastUpdate`
+
+#### `POST /subscriptions/batch-refresh`
+
+批量刷新多个已存储远程订阅源，返回：
+
+- `results[]`
+- `summary.total`
+- `summary.succeeded`
+- `summary.failed`
+- `summary.totalNodes`
+
+#### `POST /manual-nodes/validate`
+
+用于校验候选手动节点链接：
+
+- 只接受受支持协议（如 `vless://`、`trojan://`、`ss://`）
+- 使用本地解析器解析单条节点
+- 不写入存储
+
+返回核心字段：
+
+- `valid`
+- `requestedName`
+- `requestedUrl`
+- `protocol`
+- `nodeCount`
+- `parsedNode`
+- `checkedAt`
+
+#### `POST /profiles/:id/refresh`
+
+刷新 profile 里引用的所有远程订阅源，并汇总返回：
+
+- `profile`
+- `results[]`
+- `summary.totalSubscriptions`
+- `summary.refreshedSubscriptions`
+- `summary.failedSubscriptions`
+- `summary.manualNodes`
+- `summary.totalNodes`
+
+其中：
+
+- `manualNodes` 直接按当前引用数量统计
+- `totalNodes = 成功刷新的远程订阅节点总数 + 手动节点数量`
+- 失败的远程订阅也会把 `lastError` / `lastUpdate` 持久化回库
+
+### 7.4 preview 仍是轻量预览，不拉远程订阅内容
 
 当前 `POST /profiles/:id/preview` 只做轻量聚合：
 
@@ -344,11 +435,40 @@ curl -s -X POST \
   'https://your-domain.example/api/ext/v1/profiles'
 ```
 
-### 8.4 获取轻量预览
+### 8.4 校验候选手动节点
 
 ```bash
 curl -s -X POST \
-  -H 'Authorization: Bearer YOUR_TOKEN' \
+  -H 'Authorization: Bearer ***' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "SG-01",
+    "url": "trojan://password@example.com:443#SG-01"
+  }' \
+  'https://your-domain.example/api/ext/v1/manual-nodes/validate'
+```
+
+### 8.5 刷新单个远程订阅源
+
+```bash
+curl -s -X POST \
+  -H 'Authorization: Bearer ***' \
+  'https://your-domain.example/api/ext/v1/subscriptions/sub_1/refresh'
+```
+
+### 8.6 刷新 profile 下的远程订阅源
+
+```bash
+curl -s -X POST \
+  -H 'Authorization: Bearer ***' \
+  'https://your-domain.example/api/ext/v1/profiles/profile_1/refresh'
+```
+
+### 8.7 获取轻量预览
+
+```bash
+curl -s -X POST \
+  -H 'Authorization: Bearer ***' \
   'https://your-domain.example/api/ext/v1/profiles/profile_1/preview'
 ```
 

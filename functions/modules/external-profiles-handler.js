@@ -11,6 +11,7 @@ import {
   sortBySortIndex
 } from './external-api-utils.js';
 import { isManualNode, isRemoteSubscription, toExternalProfile } from './external-api-mappers.js';
+import { inspectRemoteSubscription } from './external-subscriptions-handler.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -58,7 +59,54 @@ function dedupe(values) {
   return [...new Set(normalizeStringArray(values))];
 }
 
-export async function handleExternalProfilesRequest(request, env, { id = null, relation = null } = {}) {
+async function refreshProfileSubscriptions(storageAdapter, env, profile) {
+  const allSubscriptions = await storageAdapter.getAllSubscriptions();
+  const byId = new Map(allSubscriptions.map(item => [item.id, item]));
+  const remoteSubscriptions = (Array.isArray(profile.subscriptions) ? profile.subscriptions : [])
+    .map(id => byId.get(id))
+    .filter(item => item && isRemoteSubscription(item));
+  const manualNodes = (Array.isArray(profile.manualNodes) ? profile.manualNodes : [])
+    .map(id => byId.get(id))
+    .filter(item => item && isManualNode(item));
+
+  const results = [];
+  for (const current of remoteSubscriptions) {
+    const inspection = await inspectRemoteSubscription(env, current);
+    const timestamp = nowIso();
+    const updated = {
+      ...current,
+      nodeCount: inspection.ok ? inspection.nodeCount : 0,
+      userInfo: inspection.ok ? inspection.userInfo : (inspection.userInfo || null),
+      lastError: inspection.ok ? '' : inspection.message,
+      lastUpdate: timestamp,
+      updatedAt: timestamp
+    };
+    await storageAdapter.putSubscription(updated);
+    results.push({
+      id: updated.id,
+      name: updated.name || '',
+      success: inspection.ok,
+      nodeCount: Number(updated.nodeCount) || 0,
+      userInfo: updated.userInfo || null,
+      lastError: updated.lastError || '',
+      lastUpdated: updated.lastUpdate || null
+    });
+  }
+
+  return {
+    profile: toExternalProfile(profile),
+    results,
+    summary: {
+      totalSubscriptions: remoteSubscriptions.length,
+      refreshedSubscriptions: results.filter(item => item.success).length,
+      failedSubscriptions: results.filter(item => !item.success).length,
+      manualNodes: manualNodes.length,
+      totalNodes: results.filter(item => item.success).reduce((sum, item) => sum + (Number(item.nodeCount) || 0), 0) + manualNodes.length
+    }
+  };
+}
+
+export async function handleExternalProfilesRequest(request, env, { id = null, relation = null, action = null } = {}) {
   const storageAdapter = await getExternalStorageAdapter(env);
   const url = new URL(request.url);
 
@@ -82,10 +130,16 @@ export async function handleExternalProfilesRequest(request, env, { id = null, r
     );
   }
 
-  if (request.method === 'GET' && id && !relation) {
+  if (request.method === 'GET' && id && !relation && !action) {
     const profile = await getProfileById(storageAdapter, id);
     if (!profile) return createExternalError('profile_not_found', 'Profile not found', 404);
     return createExternalSuccess(toExternalProfile(profile));
+  }
+
+  if (request.method === 'POST' && id && action === 'refresh') {
+    const profile = await getProfileById(storageAdapter, id);
+    if (!profile) return createExternalError('profile_not_found', 'Profile not found', 404);
+    return createExternalSuccess(await refreshProfileSubscriptions(storageAdapter, env, profile));
   }
 
   if (request.method === 'POST' && !id) {
