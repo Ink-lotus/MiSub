@@ -217,6 +217,11 @@ Profile 输出链路：
 - `enableEnhancedLogging`
 - `maxSubscriptionConcurrency`
 - `defaultUserAgent`
+- `externalApi`
+  - `enabled`：是否启用 `/api/ext/v1/*` External Management API。
+  - `tokens[]`
+    - `name`：token 标签名。
+    - `token`：Bearer Token 明文。
 - `isDefaultPassword`：只在 `GET /api/data` 返回时动态附加，不是持久设置字段。
 
 保存规则：
@@ -257,7 +262,24 @@ Profile 输出链路：
 
 因此维护时不要简单用变量名判断业务含义。当前代码里 `subscriptions` 数组不只包含 HTTP 订阅，也包含手动节点。
 
-## 8. 数据一致性与维护注意事项
+## 8. External Management API 的对外 DTO
+
+External Management API（`/api/ext/v1/*`）不会直接暴露内部混合数组语义，而是拆成三类资源：
+
+- `subscriptions`：只表示远程订阅源，要求 `url` 为 `http(s)`。
+- `manual-nodes`：只表示手动节点，要求 `url` 为受支持的节点协议。
+- `profiles`：对外固定返回 `subscriptionIds` 与 `manualNodeIds`，不暴露内部 `subscriptions` / `manualNodes` 字段名。
+
+当前轻量预览接口 `POST /api/ext/v1/profiles/:id/preview` 返回：
+
+- `profile`：对外 Profile DTO
+- `counts.subscriptions`：远程订阅源数量
+- `counts.manualNodes`：手动节点数量
+- `counts.totalNodes`：当前实现等于手动节点数量
+- `byProtocol`：手动节点按协议统计
+- `sources`：订阅源/手动节点摘要
+
+## 9. 数据一致性与维护注意事项
 
 - `isUpdating` 是前端临时字段，保存前剔除。
 - `sortIndex` 是后端保存时补充的排序字段，D1 行级读取会按它排序。

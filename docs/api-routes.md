@@ -118,6 +118,77 @@
   - 认证：不要求登录，但默认关闭；仅 `ENABLE_AUTH_DIAGNOSTICS=true` 时可访问。
   - 返回：登录密码诊断结果，不返回敏感值。
 
+## `/api/ext/v1/*` External Management API
+
+这些接口位于 `api-router.js` 中、在普通 `authMiddleware()` 之前分流到 `handleExternalApiRequest()`，不复用后台登录 Cookie，而是使用 `settings.externalApi` 中配置的 Bearer Token。
+
+- 入口：`functions/modules/external-api-router.js`
+- 认证：`functions/modules/external-api-auth.js`
+- 文档：
+  - `docs/external-management-api.md`
+  - `docs/external-management-api.openapi.yaml`
+- 认证要求：
+  - `settings.externalApi.enabled === true`
+  - `Authorization: Bearer <token>` 必须命中 `settings.externalApi.tokens[*].token`
+- 默认失败：
+  - External API 未启用：`403 forbidden`
+  - Token 缺失或不匹配：`401 unauthorized`
+- 响应形态：
+  - 成功：`{ success: true, data, meta? }`
+  - 失败：`{ success: false, error: { code, message, details? } }`
+
+### 远程订阅源 resources
+
+- `GET /api/ext/v1/subscriptions`
+  - 读取：仅返回 `url` 为 `http(s)` 的项目。
+  - 筛选：`enabled`、`group`、`keyword`、`page`、`pageSize`。
+- `POST /api/ext/v1/subscriptions`
+  - 写入：创建远程订阅源。
+  - 限制：`url` 必须是 `http://` 或 `https://`。
+- `GET /api/ext/v1/subscriptions/:id`
+- `PATCH /api/ext/v1/subscriptions/:id`
+- `DELETE /api/ext/v1/subscriptions/:id`
+  - 删除后会级联清理所有 profile 中的该订阅源 ID。
+
+### 手动节点 resources
+
+- `GET /api/ext/v1/manual-nodes`
+  - 读取：仅返回节点协议 URL 项。
+  - 筛选：`enabled`、`group`、`protocol`、`keyword`、`page`、`pageSize`。
+- `POST /api/ext/v1/manual-nodes`
+  - 写入：创建手动节点。
+  - 限制：`url` 必须是受支持的节点协议，不允许 `http(s)`。
+- `GET /api/ext/v1/manual-nodes/:id`
+- `PATCH /api/ext/v1/manual-nodes/:id`
+- `DELETE /api/ext/v1/manual-nodes/:id`
+  - 删除后会级联清理所有 profile 中的该手动节点 ID。
+
+### 订阅组 resources
+
+- `GET /api/ext/v1/profiles`
+  - 筛选：`enabled`、`keyword`、`page`、`pageSize`。
+- `POST /api/ext/v1/profiles`
+- `GET /api/ext/v1/profiles/:id`
+- `PATCH /api/ext/v1/profiles/:id`
+- `DELETE /api/ext/v1/profiles/:id`
+- `POST /api/ext/v1/profiles/:id/subscriptions`
+- `DELETE /api/ext/v1/profiles/:id/subscriptions`
+- `POST /api/ext/v1/profiles/:id/manual-nodes`
+- `DELETE /api/ext/v1/profiles/:id/manual-nodes`
+
+对外 DTO 固定返回：
+
+- `subscriptionIds`
+- `manualNodeIds`
+
+不会暴露内部存储字段 `subscriptions` / `manualNodes`。
+
+### 轻量预览
+
+- `POST /api/ext/v1/profiles/:id/preview`
+  - 返回：profile 对外 DTO、远程订阅源数量、手动节点数量、按协议统计和 sources 摘要。
+  - 当前不会主动拉取远程订阅内容，只做轻量聚合。
+
 ## `/api/*` 登录后管理接口
 
 以下路由位于 `if (!await authMiddleware(...)) return 401` 之后，默认需要管理登录 Cookie。部分 handler 内部还会重复校验方法或认证。
