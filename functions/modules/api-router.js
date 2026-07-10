@@ -51,6 +51,7 @@ import { safeFetchPublicUrl, validatePublicFetchUrl, redactUrl } from './securit
 import { normalizeSubconverterBackend } from './subscription/main-handler.js';
 import { maybeRunScheduledTasks } from './scheduled-task-runner.js';
 import { handleExternalNodesCallbackRequest } from '../services/external-nodes-callback-service.js';
+import { handleExternalApiRequest } from './external-api-router.js';
 
 // 常量定义
 const OLD_KV_KEY = 'misub_data_v1';
@@ -71,6 +72,10 @@ export async function handleApiRequest(request, env, context = null) {
 
     if (path === '/external-nodes-callback') {
         return handleExternalNodesCallbackRequest(request, env);
+    }
+
+    if (path.startsWith('/ext/v1')) {
+        return await handleExternalApiRequest(request, env);
     }
 
     // [新增] 数据存储迁移接口 (KV -> D1)
