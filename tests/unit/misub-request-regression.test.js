@@ -92,7 +92,7 @@ describe('handleMisubRequest regression coverage', () => {
         }
     });
 
-    it('normalizes external converter hosts and sends preprocessed nodes inline', async () => {
+    it('normalizes external converter hosts and uses the current base64 subscription as its data source', async () => {
         const subscriptions = [{
             id: 'sub-a',
             name: '鏈哄満A',
@@ -122,15 +122,17 @@ describe('handleMisubRequest regression coverage', () => {
                 waitUntil: vi.fn()
             });
             const redirectUrl = new URL(initialResponse.headers.get('Location'));
-            const inlineNodeList = redirectUrl.searchParams.get('url');
+            const dataSourceUrl = new URL(redirectUrl.searchParams.get('url'));
 
             expect(initialResponse.status).toBe(302);
             expect(redirectUrl.origin + redirectUrl.pathname).toBe('https://sub.example/sub');
             expect(redirectUrl.searchParams.get('target')).toBe('clash');
-            expect(inlineNodeList).toContain('trojan://pass@example.com:443#');
-            expect(inlineNodeList).not.toContain('misub.example');
-            expect(inlineNodeList).not.toContain('target=nodes');
-            expect(inlineNodeList).not.toContain('\n');
+            expect(dataSourceUrl.origin + dataSourceUrl.pathname).toBe('https://misub.example/stable-token');
+            expect(dataSourceUrl.searchParams.has('base64')).toBe(true);
+            expect(dataSourceUrl.searchParams.get('callback_token')).toBe('external');
+            expect(dataSourceUrl.searchParams.has('target')).toBe(false);
+            expect(dataSourceUrl.searchParams.has('refresh')).toBe(false);
+            expect(redirectUrl.searchParams.get('url')).not.toContain('trojan://pass@example.com');
             expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[MiSub Request]'));
             expect(logSpy).toHaveBeenCalledWith('[MiSub Nodes] Count/Length: 68');
         } finally {
@@ -138,7 +140,7 @@ describe('handleMisubRequest regression coverage', () => {
         }
     });
 
-    it('switches large external converter redirects to a temporary callback URL', async () => {
+    it('uses the current base64 subscription for large external redirects without callback secrets or temporary writes', async () => {
         const subscriptions = [{
             id: 'sub-a',
             name: 'Airport A',
@@ -156,7 +158,6 @@ describe('handleMisubRequest regression coverage', () => {
         });
         const kvWrites = new Map();
         const env = {
-            CALLBACK_TOKEN_SECRET: 'callback-secret',
             MISUB_KV: {
                 get: vi.fn(async (key) => kvWrites.get(key) || null),
                 put: vi.fn(async (key, value) => {
@@ -182,19 +183,20 @@ describe('handleMisubRequest regression coverage', () => {
                 waitUntil: vi.fn()
             });
             const redirectUrl = new URL(response.headers.get('Location'));
-            const callbackUrl = new URL(redirectUrl.searchParams.get('url'));
+            const dataSourceUrl = new URL(redirectUrl.searchParams.get('url'));
 
             expect(response.status).toBe(302);
             expect(redirectUrl.origin + redirectUrl.pathname).toBe('https://sub.example/sub');
             expect(redirectUrl.searchParams.get('target')).toBe('clash');
-            expect(callbackUrl.origin + callbackUrl.pathname).toBe('https://misub.example/api/external-nodes-callback');
-            expect(callbackUrl.searchParams.get('token')).toBeTruthy();
-            expect(callbackUrl.searchParams.get('encoding')).toBe('base64');
+            expect(dataSourceUrl.origin + dataSourceUrl.pathname).toBe('https://misub.example/stable-token');
+            expect(dataSourceUrl.searchParams.has('base64')).toBe(true);
+            expect(dataSourceUrl.searchParams.get('callback_token')).toBe('external');
+            expect(dataSourceUrl.searchParams.has('target')).toBe(false);
+            expect(dataSourceUrl.searchParams.has('refresh')).toBe(false);
             expect(redirectUrl.searchParams.get('url')).not.toContain('trojan://pass0@example.com');
             const externalNodeCacheWrites = [...kvWrites.entries()].filter(([key]) => key.startsWith('tmp_external_nodes:'));
-            expect(externalNodeCacheWrites).toHaveLength(1);
-            expect(externalNodeCacheWrites[0][1]).toContain('trojan://pass0@example.com:443#');
-            expect(response.headers.get('X-MiSub-Mode')).toBe('external-redirect-callback');
+            expect(externalNodeCacheWrites).toHaveLength(0);
+            expect(response.headers.get('X-MiSub-Mode')).toBe('external-redirect-v2');
         } finally {
             logSpy.mockRestore();
         }
@@ -235,14 +237,15 @@ describe('handleMisubRequest regression coverage', () => {
                 waitUntil: vi.fn()
             });
             const redirectUrl = new URL(response.headers.get('Location'));
-            const inlineNodeList = redirectUrl.searchParams.get('url');
+            const dataSourceUrl = new URL(redirectUrl.searchParams.get('url'));
 
             expect(response.status).toBe(302);
             expect(redirectUrl.origin + redirectUrl.pathname).toBe(expectedEndpoint);
             expect(redirectUrl.searchParams.get('target')).toBe('clash');
-            expect(inlineNodeList).toContain('trojan://pass@example.com:443#');
-            expect(inlineNodeList).not.toContain('target=nodes');
-            expect(inlineNodeList).not.toContain('\n');
+            expect(dataSourceUrl.origin + dataSourceUrl.pathname).toBe('https://misub.example/stable-token');
+            expect(dataSourceUrl.searchParams.has('base64')).toBe(true);
+            expect(dataSourceUrl.searchParams.get('callback_token')).toBe('external');
+            expect(dataSourceUrl.searchParams.has('target')).toBe(false);
             expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[MiSub Request]'));
             expect(logSpy).toHaveBeenCalledWith('[MiSub Nodes] Count/Length: 51');
         } finally {

@@ -69,6 +69,20 @@ describe('dashboard UI components', () => {
     expect(wrapper.find('input').element.value).toContain('/stable-token');
   });
 
+  it('generates a native sing-box link instead of a base64 link', async () => {
+    const wrapper = mountRightPanel({
+      config: { mytoken: 'stable-token', profileToken: 'share-token' },
+      profiles: [{ id: 'p1', customId: 'daily', name: '日常使用' }]
+    });
+
+    const singBoxButton = wrapper.findAll('button').find(button => button.text() === 'Sing-Box');
+    expect(singBoxButton).toBeTruthy();
+    await singBoxButton.trigger('click');
+
+    expect(wrapper.find('input').element.value).toBe(`${window.location.origin}/stable-token?singbox`);
+    expect(wrapper.find('input').element.value).not.toContain('?base64');
+  });
+
   it('does not generate copyable subscription links for invalid token characters', () => {
     const wrapper = mountRightPanel({
       config: { mytoken: ':', profileToken: 'share-token' },
