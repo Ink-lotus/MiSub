@@ -5,6 +5,9 @@ import { applySmartModelOptimizations } from '../../functions/modules/subscripti
 import { TRANSFORM_ASSETS } from '../../src/constants/transform-assets.js';
 import { getBuiltinRules, getRemoteProviderDefinitions, REMOTE_SOURCES } from '../../functions/modules/subscription/builtin-rules-provider.js';
 import { generateBuiltinSingboxConfig } from '../../functions/modules/subscription/builtin-singbox-generator.js';
+import { renderClashFromTemplateModel } from '../../functions/modules/subscription/template-renderers/render-clash.js';
+import { renderSingboxFromTemplateModel } from '../../functions/modules/subscription/template-renderers/render-singbox.js';
+import yaml from 'js-yaml';
 
 const sampleProxies = [
     { name: '香港 01', type: 'ss', server: 'hk.example.com', port: 443, cipher: 'aes-128-gcm', password: 'x' },
@@ -87,6 +90,33 @@ describe('Builtin template rule audit', () => {
         expect(aiGroup?.members).toContain('🔯 故障转移');
         expect(aiGroup?.members).toContain('🇺🇸 美国节点');
         expect(aiGroup?.members).not.toContain('🇺🇲 美国节点');
+    });
+
+    it('routes common AI service domains to the AI group before China and final rules in Clash and sing-box output', () => {
+        const model = getOptimizedTemplateModel('clash_misub_media_ai');
+        const expectedDomains = [
+            'x.ai', 'xai.com', 'gemini.google.com', 'aistudio.google.com',
+            'copilot.microsoft.com', 'api.githubcopilot.com', 'perplexity.ai',
+            'poe.com', 'character.ai', 'deepseek.com', 'moonshot.cn',
+            'yuanbao.tencent.com',
+            'tongyi.aliyun.com', 'qianwen.com', 'doubao.com', 'coze.cn'
+        ];
+        const clash = yaml.load(renderClashFromTemplateModel(model));
+        const singbox = JSON.parse(renderSingboxFromTemplateModel(model));
+        const geoipIndex = clash.rules.findIndex(rule => rule === 'GEOIP,CN,🎯 全球直连');
+        const finalIndex = clash.rules.findIndex(rule => rule === 'MATCH,🐟 漏网之鱼');
+
+        for (const domain of expectedDomains) {
+            const clashRule = `DOMAIN-SUFFIX,${domain},🤖 AI 服务`;
+            const clashIndex = clash.rules.findIndex(rule => rule === clashRule);
+            expect(clashIndex, `${domain} should route to the AI group`).toBeGreaterThanOrEqual(0);
+            expect(clashIndex).toBeLessThan(geoipIndex);
+            expect(clashIndex).toBeLessThan(finalIndex);
+            expect(singbox.route.rules).toContainEqual({
+                domain_suffix: [domain],
+                outbound: '🤖 AI 服务'
+            });
+        }
     });
 
     it('uses maintained SagerNet sing-box binary rule sets instead of deprecated Loyalsoldier JSON rules', () => {
