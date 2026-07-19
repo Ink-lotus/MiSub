@@ -82,15 +82,15 @@ describe('Built-in Sing-box generator', () => {
         expect(anytlsNode?.tls?.insecure).toBe(true);
     });
 
-    it('should map SS2022 v2ray-plugin websocket without forcing TLS', () => {
+    it('should map SS2022 v2ray-plugin websocket with SIP003 fields instead of an invalid transport', () => {
         const result = generateBuiltinSingboxConfig(SS2022_V2RAY_PLUGIN_NODE);
         const parsed = JSON.parse(result);
         const ssNode = parsed.outbounds.find(outbound => outbound.type === 'shadowsocks');
 
         expect(ssNode?.method).toBe('2022-blake3-aes-256-gcm');
-        expect(ssNode?.transport?.type).toBe('ws');
-        expect(ssNode?.transport?.path).toBe('/?enc=2022-blake3-aes-256-gcm');
-        expect(ssNode?.transport?.headers?.Host).toBe('ss.2227tsj.workers.dev');
+        expect(ssNode?.plugin).toBe('v2ray-plugin');
+        expect(ssNode?.plugin_opts).toBe('mode=websocket;host=ss.2227tsj.workers.dev;path=/?enc=2022-blake3-aes-256-gcm');
+        expect(ssNode?.transport).toBeUndefined();
         expect(ssNode?.tls).toBeUndefined();
     });
 

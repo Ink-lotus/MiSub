@@ -30,6 +30,22 @@ MATCH,节点选择
         expect(trojan).toBeDefined();
     });
 
+    it('uses SIP003 v2ray-plugin fields instead of an invalid Shadowsocks transport', () => {
+        const rendered = renderSingboxFromIniTemplate(`
+[Proxy Group]
+节点选择 = select, SS2022, DIRECT
+
+[Rule]
+MATCH,节点选择
+        `, { nodeList: SS2022_V2RAY_PLUGIN_NODE });
+        const parsed = JSON.parse(rendered);
+        const ssNode = parsed.outbounds.find(outbound => outbound.type === 'shadowsocks');
+
+        expect(ssNode?.plugin).toBe('v2ray-plugin');
+        expect(ssNode?.plugin_opts).toBe('mode=websocket;host=ss.2227tsj.workers.dev;path=/?enc=2022-blake3-aes-256-gcm');
+        expect(ssNode?.transport).toBeUndefined();
+    });
+
     it('should parse limited ini template into unified model', () => {
         const model = parseIniTemplate(`
 [Proxy Group]
@@ -388,9 +404,9 @@ custom_proxy_group=TestGroup`;
         expect(quanxRendered).not.toContain('over-tls=true');
 
         expect(ssOutbound?.method).toBe('2022-blake3-aes-256-gcm');
-        expect(ssOutbound?.transport?.type).toBe('ws');
-        expect(ssOutbound?.transport?.path).toBe('/?enc=2022-blake3-aes-256-gcm');
-        expect(ssOutbound?.transport?.headers?.Host).toBe('ss.2227tsj.workers.dev');
+        expect(ssOutbound?.plugin).toBe('v2ray-plugin');
+        expect(ssOutbound?.plugin_opts).toBe('mode=websocket;host=ss.2227tsj.workers.dev;path=/?enc=2022-blake3-aes-256-gcm');
+        expect(ssOutbound?.transport).toBeUndefined();
         expect(ssOutbound?.tls).toBeUndefined();
     });
 
