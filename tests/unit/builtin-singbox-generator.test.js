@@ -50,11 +50,16 @@ describe('Built-in Sing-box generator', () => {
         expect(socksNode?.tls?.enabled).toBe(true);
     });
 
-    it('should map trojan websocket transport', () => {
+    it('uses current DNS server objects while preserving Trojan websocket transport', () => {
         const result = generateBuiltinSingboxConfig('trojan://password@1.2.3.4:443?type=ws&path=%2Fws&host=example.com&sni=example.org#TrojanWS');
         const parsed = JSON.parse(result);
         const trojanNode = parsed.outbounds.find(outbound => outbound.tag.endsWith('TrojanWS'));
 
+        expect(parsed.dns.servers).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'udp', server: '223.5.5.5', server_port: 53 }),
+            expect.objectContaining({ type: 'https', server: '1.1.1.1', path: '/dns-query' })
+        ]));
+        expect(parsed.dns.servers.every(server => !Object.hasOwn(server, 'address'))).toBe(true);
         expect(trojanNode?.type).toBe('trojan');
         expect(trojanNode?.tls?.enabled).toBe(true);
         expect(trojanNode?.tls?.server_name).toBe('example.org');

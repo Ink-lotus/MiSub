@@ -519,6 +519,81 @@ proxies:
         });
     });
 
+    it('preserves Trojan gRPC fields from Clash YAML through URL and builtin Clash output', () => {
+        const clashConfig = `
+proxies:
+  - name: Trojan gRPC
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: secret
+    network: grpc
+    sni: edge.example.com
+    client-fingerprint: chrome
+    skip-cert-verify: true
+    grpc-opts:
+      grpc-service-name: gateway
+      grpc-mode: gun
+`;
+
+        const nodes = extractValidNodes(clashConfig);
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0]).toContain('type=grpc');
+        expect(nodes[0]).toContain('serviceName=gateway');
+        expect(nodes[0]).toContain('mode=gun');
+        expect(nodes[0]).toContain('fp=chrome');
+
+        const fullConfig = yaml.load(generateBuiltinClashConfig(nodes.join('\n'), { addFlagEmoji: false }));
+        expect(fullConfig.proxies[0]).toMatchObject({
+            name: 'Trojan gRPC',
+            type: 'trojan',
+            network: 'grpc',
+            sni: 'edge.example.com',
+            'client-fingerprint': 'chrome',
+            'skip-cert-verify': true,
+            'grpc-opts': {
+                'grpc-service-name': 'gateway',
+                'grpc-mode': 'gun'
+            }
+        });
+    });
+
+    it('preserves Hysteria2 options from Clash YAML through URL and builtin Clash output', () => {
+        const clashConfig = `
+proxies:
+  - name: HY2 full
+    type: hysteria2
+    server: hy2.example.com
+    port: 443
+    password: secret
+    sni: edge.example.com
+    obfs: salamander
+    obfs-password: obfs-secret
+    skip-cert-verify: true
+    ports: 20000-30000
+    up: 100 Mbps
+    down: 200 Mbps
+    fast-open: true
+`;
+
+        const nodes = extractValidNodes(clashConfig);
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0]).toContain('ports=20000-30000');
+        expect(nodes[0]).toContain('up=100%20Mbps');
+        expect(nodes[0]).toContain('down=200%20Mbps');
+        expect(nodes[0]).toContain('fast_open=1');
+
+        const fullConfig = yaml.load(generateBuiltinClashConfig(nodes.join('\n'), { addFlagEmoji: false }));
+        expect(fullConfig.proxies[0]).toMatchObject({
+            name: 'HY2 full',
+            type: 'hysteria2',
+            ports: '20000-30000',
+            up: '100 Mbps',
+            down: '200 Mbps',
+            'fast-open': true
+        });
+    });
+
     it('documents one-way exports whose emitted schemes are not parsed back yet', () => {
         const fixtures = [
             {

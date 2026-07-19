@@ -287,6 +287,16 @@ function parseTrojanUrl(url) {
             }
         }
 
+        // gRPC 配置
+        if (network === 'grpc') {
+            const grpcOpts = {};
+            if (params.get('serviceName')) grpcOpts['grpc-service-name'] = params.get('serviceName');
+            if (params.get('mode')) grpcOpts['grpc-mode'] = params.get('mode');
+            if (Object.keys(grpcOpts).length > 0) {
+                proxy['grpc-opts'] = grpcOpts;
+            }
+        }
+
         // SNI (支持 sni 和 peer 两种参数名，Shadowrocket 使用 peer)
         if (params.get('sni')) {
             proxy.servername = params.get('sni');
@@ -648,6 +658,16 @@ function parseHysteria2Url(url) {
             if (params.get('obfs-password')) {
                 proxy['obfs-password'] = params.get('obfs-password');
             }
+        }
+
+        if (params.get('ports')) proxy.ports = params.get('ports');
+        if (params.get('up')) proxy.up = params.get('up');
+        if (params.get('down')) proxy.down = params.get('down');
+        const fastOpen = params.get('fast_open') || params.get('fast-open');
+        if (fastOpen === '1' || fastOpen === 'true') {
+            proxy['fast-open'] = true;
+        } else if (fastOpen === '0' || fastOpen === 'false') {
+            proxy['fast-open'] = false;
         }
 
         const realmId = params.get('realm-id');

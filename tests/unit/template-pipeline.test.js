@@ -7,6 +7,29 @@ import { getBuiltinTemplate } from '../../functions/modules/subscription/builtin
 const SS2022_V2RAY_PLUGIN_NODE = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
 
 describe('Template pipeline', () => {
+    it('uses current DNS server objects in sing-box templates', () => {
+        const rendered = renderSingboxFromIniTemplate(`
+[Proxy Group]
+节点选择 = select, Trojan WS, DIRECT
+
+[Rule]
+MATCH,节点选择
+        `, {
+            proxies: [{
+                name: 'Trojan WS', type: 'trojan', server: 'trojan.example.com', port: 443,
+                password: 'secret', network: 'ws', 'ws-opts': { path: '/ws', headers: { Host: 'edge.example.com' } }
+            }]
+        });
+        const parsed = JSON.parse(rendered);
+        const trojan = parsed.outbounds.find(outbound => outbound.tag === 'Trojan WS');
+
+        expect(parsed.dns.servers).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'udp', server: '223.5.5.5', server_port: 53 })
+        ]));
+        expect(parsed.dns.servers.every(server => !Object.hasOwn(server, 'address'))).toBe(true);
+        expect(trojan).toBeDefined();
+    });
+
     it('should parse limited ini template into unified model', () => {
         const model = parseIniTemplate(`
 [Proxy Group]

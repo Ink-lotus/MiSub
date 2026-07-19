@@ -356,9 +356,9 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
         dns: {
             strategy: 'prefer_ipv4',
             servers: [
-                { tag: 'dns-ali', address: '223.5.5.5', detour: 'DIRECT' },
-                { tag: 'dns-google', address: '8.8.8.8', detour: DEFAULT_SELECT_GROUP },
-                { tag: 'doh-cloudflare', address: 'https://1.1.1.1/dns-query', detour: DEFAULT_SELECT_GROUP }
+                { tag: 'dns-ali', type: 'udp', server: '223.5.5.5', server_port: 53, detour: 'DIRECT' },
+                { tag: 'dns-google', type: 'udp', server: '8.8.8.8', server_port: 53, detour: DEFAULT_SELECT_GROUP },
+                { tag: 'doh-cloudflare', type: 'https', server: '1.1.1.1', server_port: 443, path: '/dns-query', detour: DEFAULT_SELECT_GROUP }
             ]
         },
         inbounds: [

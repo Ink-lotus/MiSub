@@ -368,8 +368,8 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         dns: {
             strategy: 'prefer_ipv4',
             servers: [
-                { tag: 'dns-ali', address: '223.5.5.5', detour: 'DIRECT' },
-                { tag: 'dns-google', address: '8.8.8.8', detour: 'DIRECT' }
+                { tag: 'dns-ali', type: 'udp', server: '223.5.5.5', server_port: 53, detour: 'DIRECT' },
+                { tag: 'dns-google', type: 'udp', server: '8.8.8.8', server_port: 53, detour: 'DIRECT' }
             ]
         },
         outbounds: [

@@ -100,13 +100,21 @@ export function convertClashProxyToUrl(proxy) {
         if (type === 'trojan') {
             const params = [];
             const network = proxy.network || 'tcp';
-            if (network === 'ws') params.push('type=ws');
+            if (network !== 'tcp') params.push(`type=${encodeURIComponent(network)}`);
             const wsOpts = proxy.wsOpts || proxy['ws-opts'];
             if (wsOpts) {
                 if (wsOpts.path) params.push(`path=${encodeURIComponent(wsOpts.path)}`);
                 if (wsOpts.headers?.Host) params.push(`host=${encodeURIComponent(wsOpts.headers.Host)}`);
             }
-            if (proxy.sni !== undefined) params.push(`sni=${encodeURIComponent(proxy.sni)}`);
+            const grpcOpts = proxy.grpcOpts || proxy['grpc-opts'];
+            if (grpcOpts) {
+                if (grpcOpts['grpc-service-name']) params.push(`serviceName=${encodeURIComponent(grpcOpts['grpc-service-name'])}`);
+                if (grpcOpts['grpc-mode']) params.push(`mode=${encodeURIComponent(grpcOpts['grpc-mode'])}`);
+            }
+            const sni = proxy.servername ?? proxy.sni;
+            if (sni !== undefined) params.push(`sni=${encodeURIComponent(sni)}`);
+            if (proxy['client-fingerprint']) params.push(`fp=${encodeURIComponent(proxy['client-fingerprint'])}`);
+            if (proxy['dialer-proxy']) params.push(`dp=${encodeURIComponent(proxy['dialer-proxy'])}`);
             if (proxy.skipCertVerify || proxy['skip-cert-verify']) params.push('allowInsecure=1');
             const query = params.length > 0 ? `?${params.join('&')}` : '';
             return `trojan://${encodeURIComponent(proxy.password)}@${server}:${port}${query}#${encodeURIComponent(name)}`;
@@ -154,8 +162,14 @@ export function convertClashProxyToUrl(proxy) {
             const password = proxy.password || proxy.auth || '';
             if (proxy.obfs) params.push(`obfs=${encodeURIComponent(proxy.obfs)}`);
             if (proxy['obfs-password']) params.push(`obfs-password=${encodeURIComponent(proxy['obfs-password'])}`);
-            if (proxy.sni !== undefined) params.push(`sni=${encodeURIComponent(proxy.sni)}`);
+            const sni = proxy.servername ?? proxy.sni;
+            if (sni !== undefined) params.push(`sni=${encodeURIComponent(sni)}`);
             if (proxy.skipCertVerify || proxy['skip-cert-verify']) params.push('insecure=1');
+            if (proxy.ports !== undefined) params.push(`ports=${encodeURIComponent(proxy.ports)}`);
+            if (proxy.up !== undefined || proxy['up-mbps'] !== undefined) params.push(`up=${encodeURIComponent(proxy.up ?? proxy['up-mbps'])}`);
+            if (proxy.down !== undefined || proxy['down-mbps'] !== undefined) params.push(`down=${encodeURIComponent(proxy.down ?? proxy['down-mbps'])}`);
+            if (proxy['fast-open'] !== undefined) params.push(`fast_open=${proxy['fast-open'] ? '1' : '0'}`);
+            if (proxy['dialer-proxy']) params.push(`dp=${encodeURIComponent(proxy['dialer-proxy'])}`);
             appendHysteria2RealmParams(params, proxy['realm-opts']);
             const query = params.length > 0 ? `?${params.join('&')}` : '';
             return `hysteria2://${encodeURIComponent(password)}@${server}:${port}${query}#${encodeURIComponent(name)}`;
