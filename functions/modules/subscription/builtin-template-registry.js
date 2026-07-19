@@ -68,6 +68,7 @@ ruleset=🤖 AI 服务,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/
 ruleset=🤖 AI 服务,https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Claude.list
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,x.ai
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,xai.com
+ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,grok.com
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,gemini.google.com
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,aistudio.google.com
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,copilot.microsoft.com

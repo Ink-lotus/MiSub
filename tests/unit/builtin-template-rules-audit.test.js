@@ -95,7 +95,7 @@ describe('Builtin template rule audit', () => {
     it('routes common AI service domains to the AI group before China and final rules in Clash and sing-box output', () => {
         const model = getOptimizedTemplateModel('clash_misub_media_ai');
         const expectedDomains = [
-            'x.ai', 'xai.com', 'gemini.google.com', 'aistudio.google.com',
+            'x.ai', 'xai.com', 'grok.com', 'gemini.google.com', 'aistudio.google.com',
             'copilot.microsoft.com', 'api.githubcopilot.com', 'perplexity.ai',
             'poe.com', 'character.ai', 'deepseek.com', 'moonshot.cn',
             'yuanbao.tencent.com',
