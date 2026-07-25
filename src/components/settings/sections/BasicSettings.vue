@@ -116,6 +116,31 @@ watch(() => props.settings.profileToken, (val) => {
 
 <template>
   <div class="space-y-8">
+    <!-- 默认显示语言 -->
+    <div class="rounded-xl border border-gray-100/80 bg-white/90 p-6 shadow-sm dark:border-white/10 dark:bg-gray-900/70">
+      <SectionHeader :title="t('settings.defaultLanguageTitle')" :description="t('settings.defaultLanguageDesc')" tone="amber">
+        <template #icon>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 8 6 6" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m4 14 6-6 2-3" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 5h12" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 2h1" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m22 22-5-10-5 10" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 18h6" />
+          </svg>
+        </template>
+      </SectionHeader>
+      <div class="max-w-xs">
+        <select
+          v-model="settings.defaultLocale"
+          class="block w-full px-3 py-2.5 bg-white/80 dark:bg-gray-900/60 border border-gray-200/80 dark:border-white/10 misub-radius-lg shadow-sm focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 sm:text-sm dark:text-white transition-colors"
+        >
+          <option value="zh-CN">{{ t('settings.defaultLanguageZh') }}</option>
+          <option value="en-US">{{ t('settings.defaultLanguageEn') }}</option>
+        </select>
+      </div>
+    </div>
+
     <!-- 订阅基本信息配置 -->
     <div class="rounded-xl border border-gray-100/80 bg-white/90 p-6 shadow-sm dark:border-white/10 dark:bg-gray-900/70">
       <SectionHeader :title="t('settings.subscriptionConfigTitle')" :description="t('settings.subscriptionConfigDesc')" tone="indigo">

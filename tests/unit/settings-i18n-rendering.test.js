@@ -79,7 +79,8 @@ describe('settings page English translations', () => {
           enableAccessLog: false,
           accessLogMode: 'light',
           showRemainingTraffic: true,
-          autoUpdateInterval: 0
+          autoUpdateInterval: 0,
+          defaultLocale: 'en-US'
         },
         disguiseConfig: {
           enabled: true,
@@ -90,11 +91,12 @@ describe('settings page English translations', () => {
       ...englishMountOptions()
     });
 
+    expect(wrapper.text()).toContain('Default display language');
     expect(wrapper.text()).toContain('Web Access Control');
     expect(wrapper.text()).toContain('Allow public access without login');
     expect(wrapper.text()).toContain('Disguise strategy');
     expect(wrapper.text()).toContain('Target URL');
-    expectNoChineseOrKeys(wrapper.text());
+    expect(wrapper.text()).toContain('English');
   });
 
   it('renders ClientSettings management copy in English', async () => {

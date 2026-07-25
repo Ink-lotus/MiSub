@@ -3,7 +3,7 @@ import { useToastStore } from '../stores/toast.js';
 import { DEFAULT_SETTINGS } from '../constants/default-settings.js';
 import { fetchSettings, saveSettings, resetSettings } from '../lib/api.js';
 import { useBackupLogic } from './useBackupLogic.js';
-import { t } from '../i18n/index.js';
+import { t, setLocale } from '../i18n/index.js';
 
 function normalizeExternalApiConfig(value) {
     const defaults = DEFAULT_SETTINGS.externalApi;
@@ -88,6 +88,11 @@ export function useSettingsLogic() {
 
                 if (!settings.value.storageType) {
                     settings.value.storageType = 'kv';
+                }
+
+                // 应用默认显示语言设置
+                if (settings.value.defaultLocale) {
+                    setLocale(settings.value.defaultLocale);
                 }
             } else {
                 showToast(t('settings.loadFailedWithMessage', { message: result.error }), 'error');
