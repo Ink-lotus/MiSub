@@ -199,7 +199,7 @@ export const REMOTE_SOURCES = {
     },
     STREAM: {
         name: '流媒体',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Netflix.yaml', // 示例，实际使用聚合源
+        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Netflix.yaml',
         singbox: `${SING_GEOSITE_BASE}/geosite-netflix.srs`,
         surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Netflix.list'
     },
@@ -228,6 +228,10 @@ export const REMOTE_SOURCES = {
         singbox: `${SING_GEOSITE_BASE}/geosite-openai.srs`,
         surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list',
         quanx: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list'
+    },
+    'geoip-cn': {
+        name: 'China IP (GeoIP)',
+        singbox: 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs'
     }
 };
 
@@ -319,7 +323,7 @@ export function translateRuleLine(line, format) {
             if (type === 'DOMAIN-KEYWORD') return { domain_keyword: [value], outbound: target };
             if (type === 'DOMAIN') return { domain: [value], outbound: target };
             if (type === 'IP-CIDR') return { ip_cidr: [value], outbound: target };
-            if (type === 'GEOIP') return { geoip: [value.toLowerCase()], outbound: target };
+            if (type === 'GEOIP') return { type: 'rule_set', tag: `geoip-${value.toLowerCase()}`, outbound: target };
             return null;
 
         case 'surge':

@@ -108,4 +108,27 @@ describe('Built-in Sing-box generator', () => {
         expect(tuicNode?.tls?.server_name).toBe('tuic.example.com');
         expect(tuicNode?.tls?.insecure).toBe(true);
     });
+
+    it('should use rule_set for geoip instead of deprecated geoip field (sing-box 1.12+)', () => {
+        const result = generateBuiltinSingboxConfig('trojan://password@1.2.3.4:443#TestNode');
+        const parsed = JSON.parse(result);
+
+        // No rule should have a direct geoip field
+        const geoipRules = parsed.route.rules.filter(r => r.geoip !== undefined);
+        expect(geoipRules).toHaveLength(0);
+
+        // Should have a geoip-cn rule_set reference instead
+        const geoipRuleSet = parsed.route.rules.filter(r =>
+            Array.isArray(r.rule_set) && r.rule_set.includes('geoip-cn')
+        );
+        expect(geoipRuleSet).toHaveLength(1);
+        expect(geoipRuleSet[0].outbound).toBe('DIRECT');
+
+        // Should have geoip-cn in the rule_set definitions
+        const geoipProvider = parsed.route.rule_set.find(rs => rs.tag === 'geoip-cn');
+        expect(geoipProvider).toBeDefined();
+        expect(geoipProvider.type).toBe('remote');
+        expect(geoipProvider.url).toContain('sing-geoip');
+        expect(geoipProvider.format).toBe('binary');
+    });
 });
