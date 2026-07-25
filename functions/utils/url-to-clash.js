@@ -652,6 +652,12 @@ function parseHysteria2Url(url) {
             proxy['skip-cert-verify'] = true;
         }
 
+        // [Hysteria2] handshake timeout
+        const handshakeTimeout = params.get('handshake-timeout');
+        if (handshakeTimeout) {
+            proxy["handshake-timeout"] = parseInt(handshakeTimeout, 10);
+        }
+
         // Obfs
         if (params.get('obfs')) {
             proxy.obfs = params.get('obfs');
@@ -690,6 +696,7 @@ function parseHysteria2Url(url) {
         if (params.get('dp')) {
             proxy['dialer-proxy'] = params.get('dp');
         }
+
 
 return proxy;
 } catch (e) {
