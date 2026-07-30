@@ -59,7 +59,7 @@ const applyPresetTemplate = (tpl) => {
 
 // 预设正则
 const presetRegexRules = [
-  { nameKey: 'operators.regexPresetRegionProviderLine', pattern: '\\[(.*?)\\]-(.*?)-(.*?)', replacement: '' },
+  { nameKey: 'operators.regexPresetRegionProviderLine', pattern: '\\[(.*?)\\]-(.*?)-(.*)$', replacement: '' },
   { nameKey: 'operators.regexPresetExtractSuffix', pattern: '(.*?) -(.*?)$', replacement: '$1' },
 ];
 

@@ -57,6 +57,71 @@ describe('operator runner', () => {
     }
   });
 
+  it('passes regex capture groups to a template in the same rename operator', async () => {
+    const urls = [
+      `ss://YWVzLTEyOC1nY206cGFzcw@example.com:8388#${encodeURIComponent('[香港]-机场A-线路B')}`
+    ];
+    const result = await runOperatorChain(urls, [
+      {
+        type: 'rename',
+        params: {
+          regex: {
+            enabled: true,
+            rules: [
+              {
+                pattern: '\\[(.*?)\\]-(.*?)-(.*)$',
+                replacement: '',
+                flags: 'gi'
+              }
+            ]
+          },
+          template: {
+            enabled: true,
+            template: '{g1}|{g2}|{g3}',
+            indexScope: 'global'
+          }
+        }
+      }
+    ]);
+
+    expect(decodeURIComponent(result[0])).toContain('#香港|机场A|线路B');
+  });
+
+  it('preserves regex capture groups across sequential rename operators', async () => {
+    const urls = [
+      `ss://YWVzLTEyOC1nY206cGFzcw@example.com:8388#${encodeURIComponent('[香港]-机场A-线路B')}`
+    ];
+    const result = await runOperatorChain(urls, [
+      {
+        type: 'rename',
+        params: {
+          regex: {
+            enabled: true,
+            rules: [
+              {
+                pattern: '\\[(.*?)\\]-(.*?)-(.*)$',
+                replacement: '',
+                flags: 'gi'
+              }
+            ]
+          }
+        }
+      },
+      {
+        type: 'rename',
+        params: {
+          template: {
+            enabled: true,
+            template: '{g1}|{g2}|{g3}',
+            indexScope: 'global'
+          }
+        }
+      }
+    ]);
+
+    expect(decodeURIComponent(result[0])).toContain('#香港|机场A|线路B');
+  });
+
   it('sorts nodes by custom group metadata', async () => {
     const urls = [
       'ss://YWVzLTEyOC1nY206cGFzcw@us.example.com:8388#USNode',
