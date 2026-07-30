@@ -112,7 +112,7 @@ function opRename(nodes, params) {
                     return rule;
                 });
 
-                const newName = NodeUtils.applyRegexRename(r.name, processedRules);
+                const newName = NodeUtils.applyRegexRename(r.name, processedRules, r);
                 if (newName !== r.name) {
                     return {
                         ...r,
