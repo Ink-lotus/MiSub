@@ -10,6 +10,7 @@ import { useDataStore } from '@/stores/useDataStore.js';
 
 const { t } = useI18n();
 const dataStore = useDataStore();
+const enabledDnsTemplates = computed(() => dataStore.dnsTemplates.filter(template => template.enabled !== false));
 
 const props = defineProps({
   localProfile: {
@@ -56,7 +57,7 @@ const globalConfigLabel = computed(() => {
 const globalDnsLabel = computed(() => {
   const mode = props.globalSettings?.dnsConfig?.mode || 'builtin';
   if (mode !== 'template' || !props.globalSettings?.dnsConfig?.templateId) return t('profileModal.dnsBuiltin');
-  const tpl = dataStore.dnsTemplates.find(t => t.id === props.globalSettings.dnsConfig.templateId);
+  const tpl = enabledDnsTemplates.value.find(t => t.id === props.globalSettings.dnsConfig.templateId);
   return tpl ? tpl.name : t('profileModal.notSet');
 });
 
@@ -259,7 +260,7 @@ watch(
             </div>
             <select v-if="localProfile.dnsConfig.mode === 'template'" v-model="localProfile.dnsConfig.templateId"
               class="block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 misub-radius-md focus:ring-indigo-500 sm:text-sm dark:text-white">
-              <option v-for="tpl in dataStore.dnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+              <option v-for="tpl in enabledDnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
             </select>
           </div>
 

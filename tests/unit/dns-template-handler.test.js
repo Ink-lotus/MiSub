@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { normalizeDnsTemplates, resolveEffectiveDnsConfig } from '../../functions/modules/dns-template-handler.js';
 import { DEFAULT_SETTINGS } from '../../functions/modules/config.js';
+
+const execFileAsync = promisify(execFile);
 
 describe('DNS 模板归一化', () => {
   it('应清洗字段、生成 id、默认 enabled', () => {
@@ -15,6 +19,27 @@ describe('DNS 模板归一化', () => {
   it('应过滤无任何 DNS 内容的空模板', () => {
     const normalized = normalizeDnsTemplates([{ name: '空', content: 'x' }, { name: '无字段' }]);
     expect(normalized).toHaveLength(0);
+  });
+
+  it('应在有限时间内为重复的 80 字符 id 生成唯一 id', async () => {
+    const script = `
+      import { normalizeDnsTemplates } from './functions/modules/dns-template-handler.js';
+      const id = 'a'.repeat(80);
+      const result = normalizeDnsTemplates([
+        { id, clash: 'enable: true' },
+        { id, clash: 'enable: true' }
+      ]);
+      console.log(JSON.stringify(result.map(item => item.id)));
+    `;
+
+    const { stdout } = await execFileAsync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: process.cwd(),
+      timeout: 3000
+    });
+    const ids = JSON.parse(stdout.trim());
+
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.every(id => id.length <= 80)).toBe(true);
   });
 });
 
