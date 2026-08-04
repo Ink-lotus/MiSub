@@ -1,0 +1,52 @@
+import { describe, it, expect } from 'vitest';
+import { normalizeDnsTemplates, resolveEffectiveDnsConfig } from '../../functions/modules/dns-template-handler.js';
+import { DEFAULT_SETTINGS } from '../../functions/modules/config.js';
+
+describe('DNS 模板归一化', () => {
+  it('应清洗字段、生成 id、默认 enabled', () => {
+    const normalized = normalizeDnsTemplates([{ name: '带空格的模板!', clash: 'enable: true', surge: '1.1.1.1' }]);
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0].name).toBe('带空格的模板!');
+    expect(normalized[0].id).toMatch(/^dns-template-/);
+    expect(normalized[0].enabled).toBe(true);
+    expect(normalized[0].clash).toBe('enable: true');
+    expect(normalized[0].quanx).toBe('');
+  });
+  it('应过滤无任何 DNS 内容的空模板', () => {
+    const normalized = normalizeDnsTemplates([{ name: '空', content: 'x' }, { name: '无字段' }]);
+    expect(normalized).toHaveLength(0);
+  });
+});
+
+describe('DNS 生效优先级', () => {
+  const templates = [
+    { id: 't1', enabled: true, clash: 'a', singbox: '', surge: '', loon: '', quanx: '' },
+    { id: 't2', enabled: false, clash: 'b' },
+  ];
+  it('Profile 指定模板优先', () => {
+    const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'template', templateId: 't1' }, globalDns: { mode: 'template', templateId: 't2' }, templates });
+    expect(r.clash).toBe('a');
+  });
+  it('Profile 默认内置 → 忽略全局', () => {
+    const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'builtin' }, globalDns: { mode: 'template', templateId: 't1' }, templates });
+    expect(r).toBeNull();
+  });
+  it('Profile 继承全局(global) → 用全局模板', () => {
+    const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'global' }, globalDns: { mode: 'template', templateId: 't1' }, templates });
+    expect(r.clash).toBe('a');
+  });
+  it('全局内置默认 → null', () => {
+    const r = resolveEffectiveDnsConfig({}, { /* no-op */ });
+    expect(r).toBeNull();
+  });
+  it('禁用或未找到的模板 → null', () => {
+    const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'template', templateId: 't2' }, globalDns: {}, templates });
+    expect(r).toBeNull();
+  });
+});
+
+describe('全局默认 dnsConfig', () => {
+  it('全局默认 dnsConfig 为 builtin 空 templateId', () => {
+    expect(DEFAULT_SETTINGS.dnsConfig).toEqual({ mode: 'builtin', templateId: '' });
+  });
+});

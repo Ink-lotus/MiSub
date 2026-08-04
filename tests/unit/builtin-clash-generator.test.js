@@ -89,4 +89,19 @@ describe('Clash 内置生成器', () => {
         expect(usGroup.proxies).toContain('🇺🇸 机场A US-West');
         expect(sgGroup).toBeUndefined();
     });
+
+    it('customDns.clash 应替换内置 DNS（YAML 映射体）', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = generateBuiltinClashConfig(node, { customDns: { clash: 'enable: true\nnameserver:\n  - 1.1.1.1' } });
+        const parsed = yaml.load(result);
+        expect(parsed.dns.nameserver).toEqual(['1.1.1.1']);
+        expect(parsed.dns.enable).toBe(true);
+    });
+
+    it('customDns.clash 解析失败应回退默认', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = generateBuiltinClashConfig(node, { customDns: { clash: '::this is not yaml: [' } });
+        const parsed = yaml.load(result);
+        expect(parsed.dns.enable).toBe(true);
+    });
 });

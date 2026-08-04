@@ -195,6 +195,13 @@ describe('Quantumult X 内置生成器', () => {
         expect(anytls?.url).toBe('anytls://pass-anytls@anytls.example.com:443?allowInsecure=1&sni=anytls.example.com#%F0%9F%8C%8D%20AnyTLS-v1.6.0');
     });
 
+    it('customDns.quanx 应替换 [dns] 段体', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = generateBuiltinQuanxConfig(node, { customDns: { quanx: 'no-ipv6\nserver = 8.8.8.8' } });
+        expect(result).toContain('[dns]\nno-ipv6\nserver = 8.8.8.8');
+        expect(result).not.toContain('server = 223.5.5.5');
+    });
+
     it('should document Quantumult X 1.5.5 VLESS TLS, REALITY and XTLS Vision support in builtin output', () => {
         const generated = generateBuiltinQuanxConfig([
             'vless://11111111-1111-4111-8111-111111111111@tls.example.com:443?security=tls&sni=tls.example.com&type=tcp#VLESS-TLS',

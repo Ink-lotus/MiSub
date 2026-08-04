@@ -23,6 +23,7 @@ export const useDataStore = defineStore('data', () => {
     const subscriptions = ref([]);
     const profiles = ref([]);
     const ruleTemplates = ref([]);
+    const dnsTemplates = ref([]);
     const settings = computed(() => settingsStore.config);
 
     // Store Status
@@ -42,7 +43,8 @@ export const useDataStore = defineStore('data', () => {
     let lastSavedData = {
         subscriptions: [],
         profiles: [],
-        ruleTemplates: []
+        ruleTemplates: [],
+        dnsTemplates: []
     };
 
     // --- Actions ---
@@ -56,6 +58,7 @@ export const useDataStore = defineStore('data', () => {
             subscriptions.value = cleanSubs;
             profiles.value = data.profiles || [];
             ruleTemplates.value = data.ruleTemplates || [];
+            dnsTemplates.value = data.dnsTemplates || [];
             settingsStore.setConfig({ ...DEFAULT_SETTINGS, ...data.config });
 
             updateSnapshot();
@@ -165,6 +168,7 @@ export const useDataStore = defineStore('data', () => {
                 }),
                 profiles: profiles.value,
                 ruleTemplates: ruleTemplates.value,
+                dnsTemplates: dnsTemplates.value,
                 config: settingsStore.config
             });
 
@@ -227,13 +231,35 @@ export const useDataStore = defineStore('data', () => {
         }
     }
 
+    async function fetchDnsTemplates() {
+        const result = await api.get('/api/dns_templates');
+        dnsTemplates.value = Array.isArray(result?.data) ? result.data : [];
+        lastSavedData.dnsTemplates = JSON.parse(JSON.stringify(dnsTemplates.value));
+        return dnsTemplates.value;
+    }
+
+    async function saveDnsTemplates(items = dnsTemplates.value) {
+        try {
+            const result = await api.post('/api/dns_templates', { templates: items });
+            if (!result?.success && !Array.isArray(result?.data)) throw new Error(result?.message || t('store.saveDnsTemplatesFailed'));
+            dnsTemplates.value = Array.isArray(result.data) ? result.data : [];
+            lastSavedData.dnsTemplates = JSON.parse(JSON.stringify(dnsTemplates.value));
+            showToast(t('store.dnsTemplatesSaved'), 'success');
+            return dnsTemplates.value;
+        } catch (error) {
+            showToast(t('store.saveDnsTemplatesFailedWithMessage', { message: error.message }), 'error');
+            throw error;
+        }
+    }
+
     // --- Helpers ---
 
     function updateSnapshot() {
         lastSavedData = {
             subscriptions: JSON.parse(JSON.stringify(subscriptions.value)),
             profiles: JSON.parse(JSON.stringify(profiles.value)),
-            ruleTemplates: JSON.parse(JSON.stringify(ruleTemplates.value))
+            ruleTemplates: JSON.parse(JSON.stringify(ruleTemplates.value)),
+            dnsTemplates: JSON.parse(JSON.stringify(dnsTemplates.value))
         };
     }
 
@@ -411,6 +437,7 @@ export const useDataStore = defineStore('data', () => {
         subscriptions,
         profiles,
         ruleTemplates,
+        dnsTemplates,
         settings,
         isLoading,
         saveState,
@@ -428,6 +455,8 @@ export const useDataStore = defineStore('data', () => {
         saveSettings,
         fetchRuleTemplates,
         saveRuleTemplates,
+        fetchDnsTemplates,
+        saveDnsTemplates,
         hydrateFromData,
         clearCachedData,
 

@@ -10,6 +10,7 @@
 import { StorageFactory, SettingsCache, STORAGE_TYPES } from '../storage-adapter.js';
 import { KV_KEY_SUBS, KV_KEY_PROFILES, KV_KEY_SETTINGS } from './config.js';
 import { KV_KEY_RULE_TEMPLATES, listRuleTemplates } from './rule-template-handler.js';
+import { KV_KEY_DNS_TEMPLATES, listDnsTemplates } from './dns-template-handler.js';
 import { createJsonResponse, createErrorResponse, JSON_BODY_LIMITS, readJsonWithLimit } from './utils.js';
 
 export const BACKUP_TYPE = 'misub-backup';
@@ -84,20 +85,22 @@ async function getStorage(env) {
 }
 
 async function readBusinessData(storageAdapter) {
-    const [subscriptions, profiles, ruleTemplates] = await Promise.all([
+    const [subscriptions, profiles, ruleTemplates, dnsTemplates] = await Promise.all([
         typeof storageAdapter.getAllSubscriptions === 'function'
             ? storageAdapter.getAllSubscriptions()
             : storageAdapter.get(KV_KEY_SUBS).then(value => value || []),
         typeof storageAdapter.getAllProfiles === 'function'
             ? storageAdapter.getAllProfiles()
             : storageAdapter.get(KV_KEY_PROFILES).then(value => value || []),
-        listRuleTemplates(storageAdapter).catch(() => [])
+        listRuleTemplates(storageAdapter).catch(() => []),
+        listDnsTemplates(storageAdapter).catch(() => [])
     ]);
 
     return {
         subscriptions: Array.isArray(subscriptions) ? subscriptions : [],
         profiles: Array.isArray(profiles) ? profiles : [],
-        ruleTemplates: Array.isArray(ruleTemplates) ? ruleTemplates : []
+        ruleTemplates: Array.isArray(ruleTemplates) ? ruleTemplates : [],
+        dnsTemplates: Array.isArray(dnsTemplates) ? dnsTemplates : []
     };
 }
 
@@ -122,6 +125,7 @@ export async function buildBackupPayload(env, options = {}) {
             subscriptions: cloneJson(businessData.subscriptions),
             profiles: cloneJson(businessData.profiles),
             ruleTemplates: cloneJson(businessData.ruleTemplates),
+            dnsTemplates: cloneJson(businessData.dnsTemplates),
             settings: null
         }
     };
@@ -147,6 +151,7 @@ export function normalizeBackupPayload(raw) {
                 subscriptions: Array.isArray(raw.data.subscriptions) ? raw.data.subscriptions : [],
                 profiles: Array.isArray(raw.data.profiles) ? raw.data.profiles : [],
                 ruleTemplates: Array.isArray(raw.data.ruleTemplates) ? raw.data.ruleTemplates : [],
+                dnsTemplates: Array.isArray(raw.data.dnsTemplates) ? raw.data.dnsTemplates : [],
                 settings: raw.data.settings && typeof raw.data.settings === 'object' ? raw.data.settings : null
             }
         };
@@ -165,6 +170,7 @@ export function normalizeBackupPayload(raw) {
                 subscriptions: [...raw.subscriptions, ...(Array.isArray(raw.manualNodes) ? raw.manualNodes : [])],
                 profiles: Array.isArray(raw.profiles) ? raw.profiles : [],
                 ruleTemplates: Array.isArray(raw.ruleTemplates) ? raw.ruleTemplates : [],
+                dnsTemplates: Array.isArray(raw.dnsTemplates) ? raw.dnsTemplates : [],
                 settings: null
             }
         };
@@ -227,6 +233,7 @@ export async function restoreBackupPayload(env, rawPayload, options = {}) {
     await syncCollection(storageAdapter, 'subscriptions', payload.data.subscriptions);
     await syncCollection(storageAdapter, 'profiles', payload.data.profiles);
     await storageAdapter.put(KV_KEY_RULE_TEMPLATES, Array.isArray(payload.data.ruleTemplates) ? payload.data.ruleTemplates : []);
+    await storageAdapter.put(KV_KEY_DNS_TEMPLATES, Array.isArray(payload.data.dnsTemplates) ? payload.data.dnsTemplates : []);
 
     if (scope === BACKUP_SCOPES.DATA_AND_SETTINGS && payload.data.settings) {
         const currentSettings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
@@ -247,6 +254,7 @@ export async function restoreBackupPayload(env, rawPayload, options = {}) {
             subscriptions: payload.data.subscriptions.length,
             profiles: payload.data.profiles.length,
             ruleTemplates: payload.data.ruleTemplates.length,
+            dnsTemplates: payload.data.dnsTemplates.length,
             settings: scope === BACKUP_SCOPES.DATA_AND_SETTINGS && !!payload.data.settings
         }
     };

@@ -227,6 +227,18 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
             'rules': clashRules
         };
 
+        // 自定义 DNS：解析 YAML 映射体覆盖 dns
+        if (options.customDns?.clash) {
+            try {
+                const parsed = yaml.load(options.customDns.clash);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    config.dns = parsed;
+                }
+            } catch (e) {
+                console.warn('[BuiltinClash] custom DNS invalid, keep default:', e?.message || e);
+            }
+        }
+
         let yamlStr = yaml.dump(config, {
             indent: 2,
             lineWidth: -1,

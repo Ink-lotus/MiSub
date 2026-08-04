@@ -324,4 +324,12 @@ describe('Surge 内置生成器', () => {
             expect(result).toContain('[Proxy]');
         });
     });
+
+    describe('自定义 DNS', () => {
+        it('customDns.surge 应替换 dns-server 行', () => {
+            const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+            const result = generateBuiltinSurgeConfig(node, { customDns: { surge: '8.8.8.8, 1.1.1.1' } });
+            expect(result).toContain('dns-server = 8.8.8.8, 1.1.1.1');
+        });
+    });
 });

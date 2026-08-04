@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import TransformCard from '../../src/components/settings/sections/ServiceSettings/TransformCard.vue';
@@ -50,6 +51,7 @@ describe('TransformCard third-party backend test button', () => {
     const wrapper = mount(TransformCard, {
       props: { settings: createSettings() },
       global: {
+        plugins: [createPinia()],
         stubs: {
           TransformSelector: true,
           RuleTemplateManager: true
@@ -80,6 +82,7 @@ describe('TransformCard third-party backend test button', () => {
     const wrapper = mount(TransformCard, {
       props: { settings },
       global: {
+        plugins: [createPinia()],
         stubs: {
           TransformSelector: true,
           RuleTemplateManager: true
