@@ -380,5 +380,17 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
         }
     };
 
+    // 自定义 DNS：解析 JSON 对象覆盖 dns
+    if (options.customDns?.singbox) {
+        try {
+            const parsed = JSON.parse(options.customDns.singbox);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                config.dns = parsed;
+            }
+        } catch (e) {
+            console.warn('[BuiltinSingbox] custom DNS invalid, keep default:', e?.message || e);
+        }
+    }
+
     return JSON.stringify(config, null, 2) + '\n';
 }

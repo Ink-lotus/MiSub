@@ -131,4 +131,16 @@ describe('Built-in Sing-box generator', () => {
         expect(geoipProvider.url).toContain('sing-geoip');
         expect(geoipProvider.format).toBe('binary');
     });
+
+    it('customDns.singbox 应替换内置 dns（JSON 对象）', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = JSON.parse(generateBuiltinSingboxConfig(node, { customDns: { singbox: '{"strategy":"prefer_ipv6","servers":[]}' } }));
+        expect(result.dns.strategy).toBe('prefer_ipv6');
+    });
+
+    it('customDns.singbox 非法 JSON 应回退默认', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = JSON.parse(generateBuiltinSingboxConfig(node, { customDns: { singbox: 'not-json{' } }));
+        expect(result.dns.servers.length).toBeGreaterThan(0);
+    });
 });

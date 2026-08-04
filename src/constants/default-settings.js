@@ -128,6 +128,11 @@ prependGroupName: false
             list: false
         }
     },
+    // 自定义 DNS 模板：mode='builtin'|'template'，templateId 引用 DNS 模板库
+    dnsConfig: {
+        mode: 'builtin',
+        templateId: ''
+    },
     // 自定义公开页
     customPage: {
         enabled: false,

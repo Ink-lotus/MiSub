@@ -4,11 +4,14 @@ import TransformSelector from '@/components/forms/TransformSelector.vue';
 import Switch from '@/components/ui/Switch.vue';
 import SectionHeader from '../../SectionHeader.vue';
 import RuleTemplateManager from './RuleTemplateManager.vue';
+import DnsTemplateManager from './DnsTemplateManager.vue';
 import { DEFAULT_SUBCONVERTER_BACKEND, SUBCONVERTER_BACKENDS } from '@/constants/subconverter-backends.js';
 import { testSubconverterBackend } from '@/lib/api.js';
 import { useI18n } from '@/i18n/index.js';
+import { useDataStore } from '@/stores/useDataStore.js';
 
 const { t } = useI18n();
+const dataStore = useDataStore();
 
 const props = defineProps({
   settings: {
@@ -57,6 +60,8 @@ if (!props.settings.subconverter) {
     list: false
   };
 }
+
+if (!props.settings.dnsConfig) props.settings.dnsConfig = { mode: 'builtin', templateId: '' };
 
 const isBuiltinMode = computed(() => props.settings.transformConfigMode === 'builtin');
 
@@ -249,6 +254,26 @@ watch(isExternalEngine, (enabled) => {
           </p>
         </div>
       </div>
+
+      <div class="mt-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 dark:border-white/10 dark:bg-white/5">
+        <div class="mb-3 flex items-center justify-between">
+          <label class="block text-xs font-medium uppercase tracking-wider text-purple-600 dark:text-purple-400">
+            {{ t('settings.dnsConfigTitle') }}
+          </label>
+          <select v-model="settings.dnsConfig.mode"
+            class="block rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+            <option value="builtin">{{ t('settings.dnsConfigModeBuiltin') }}</option>
+            <option value="template">{{ t('settings.dnsConfigModeTemplate') }}</option>
+          </select>
+        </div>
+        <div v-if="settings.dnsConfig.mode === 'template'" class="mt-2">
+          <select v-model="settings.dnsConfig.templateId"
+            class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+            <option v-for="tpl in dataStore.dnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+          </select>
+        </div>
+        <p class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsPlaceholder') }}</p>
+      </div>
     </div>
 
     <div
@@ -323,5 +348,6 @@ watch(isExternalEngine, (enabled) => {
       </div>
     </div>
     <RuleTemplateManager />
+    <DnsTemplateManager />
   </div>
 </template>

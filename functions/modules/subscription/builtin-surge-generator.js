@@ -446,11 +446,12 @@ export function generateBuiltinSurgeConfig(nodeList, options = {}) {
 
     const sections = [];
     const managedLine = managedConfigUrl ? `#!MANAGED-CONFIG ${managedConfigUrl} interval=${interval} strict=false\n\n` : '';
+    const dnsServerValue = options.customDns?.surge || '119.29.29.29, 223.5.5.5, system';
 
     sections.push(`${managedLine}[General]
 loglevel = notify
 skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local
-dns-server = 119.29.29.29, 223.5.5.5, system`);
+dns-server = ${dnsServerValue}`);
 
     sections.push(`[Proxy]\nDIRECT = direct\n${finalProxyLines.join('\n')}`);
 

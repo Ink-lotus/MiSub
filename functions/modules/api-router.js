@@ -9,6 +9,7 @@ import { createJsonResponse, createErrorResponse, getAuthDebugInfo, JSON_BODY_LI
 import { authMiddleware, handleLogin, handleLogout, getAuthSessionDiagnostic, getLoginPasswordDiagnostic } from './auth-middleware.js';
 import { handleDataRequest, handleMisubsSave, handleSettingsGet, handleSettingsSave, handleSettingsReset, handlePublicProfilesRequest, handlePublicConfig, handleUpdatePassword } from './api-handler.js';
 import { handleRuleTemplatesRequest } from './rule-template-handler.js';
+import { handleDnsTemplatesRequest } from './dns-template-handler.js';
 import { handleCronTrigger } from './notifications.js';
 import {
     handleSubscriptionNodesRequest,
@@ -369,6 +370,9 @@ export async function handleApiRequest(request, env, context = null) {
 
         case '/rule_templates':
             return await handleRuleTemplatesRequest(request, env);
+
+        case '/dns_templates':
+            return await handleDnsTemplatesRequest(request, env);
 
         case '/backup/export':
             return await handleBackupExport(request, env);

@@ -6,8 +6,10 @@ import Switch from '../../ui/Switch.vue';
 import OperatorChain from '../../features/Operators/OperatorChain.vue';
 import { TRANSFORM_ASSETS } from '@/constants/transform-assets';
 import { useI18n } from '@/i18n/index.js';
+import { useDataStore } from '@/stores/useDataStore.js';
 
 const { t } = useI18n();
+const dataStore = useDataStore();
 
 const props = defineProps({
   localProfile: {
@@ -36,6 +38,8 @@ const props = defineProps({
   }
 });
 
+if (!props.localProfile.dnsConfig) props.localProfile.dnsConfig = { mode: 'global', templateId: '' };
+
 const globalEngineLabel = computed(() => {
   const mode = props.globalSettings?.subconverter?.engineMode || 'builtin';
   return mode === 'external' ? t('profileModal.externalBackend') : t('profileModal.builtinEngine');
@@ -47,6 +51,13 @@ const globalConfigLabel = computed(() => {
   const url = props.globalSettings?.transformConfig || '';
   const asset = TRANSFORM_ASSETS.configs.find(a => a.url === url);
   return asset ? asset.name : (url ? t('profileModal.customUrl') : t('profileModal.notSet'));
+});
+
+const globalDnsLabel = computed(() => {
+  const mode = props.globalSettings?.dnsConfig?.mode || 'builtin';
+  if (mode !== 'template' || !props.globalSettings?.dnsConfig?.templateId) return t('profileModal.dnsBuiltin');
+  const tpl = dataStore.dnsTemplates.find(t => t.id === props.globalSettings.dnsConfig.templateId);
+  return tpl ? tpl.name : t('profileModal.notSet');
 });
 
 const transformModeOptions = [
@@ -229,6 +240,27 @@ watch(
                   {{ t('profileModal.currentGlobal', { value: globalConfigLabel }) }}
                </span>
             </div>
+          </div>
+
+          <!-- DNS 配置 -->
+          <div class="sm:col-span-2 space-y-1.5 animate-fade-in-down border-t border-gray-50 dark:border-gray-700/50 pt-3">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('profileModal.dnsLabel') }}</label>
+            <select v-model="localProfile.dnsConfig.mode"
+              class="block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 misub-radius-md focus:ring-indigo-500 sm:text-sm dark:text-white">
+              <option value="global">{{ t('profileModal.dnsFollowGlobal') }}</option>
+              <option value="builtin">{{ t('profileModal.dnsBuiltin') }}</option>
+              <option value="template">{{ t('profileModal.dnsUseTemplate') }}</option>
+            </select>
+            <div v-if="localProfile.dnsConfig.mode === 'global'" class="flex items-center gap-1.5 mt-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-tight">
+                {{ t('profileModal.currentGlobalDns', { value: globalDnsLabel }) }}
+              </span>
+            </div>
+            <select v-if="localProfile.dnsConfig.mode === 'template'" v-model="localProfile.dnsConfig.templateId"
+              class="block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 misub-radius-md focus:ring-indigo-500 sm:text-sm dark:text-white">
+              <option v-for="tpl in dataStore.dnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+            </select>
           </div>
 
           <!-- 引擎为第三方时的 URL 输入 -->

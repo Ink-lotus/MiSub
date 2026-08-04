@@ -27,4 +27,10 @@ describe('Loon 内置生成器', () => {
         expect(result).toContain('SameName = Shadowsocks');
         expect(result).toContain('SameName_1 = Shadowsocks');
     });
+
+    it('customDns.loon 应替换 dns-server 行', () => {
+        const node = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#HK-Test';
+        const result = generateBuiltinLoonConfig(node, { customDns: { loon: '223.5.5.5' } });
+        expect(result).toContain('dns-server = 223.5.5.5');
+    });
 });

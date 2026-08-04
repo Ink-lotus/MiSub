@@ -20,6 +20,7 @@ import { shouldApplyExternalTemplateForTarget } from './template-compatibility.j
 import { renderClashFromIniTemplate, renderLoonFromIniTemplate, renderQuanxFromIniTemplate, renderSingboxFromIniTemplate, renderSurgeFromIniTemplate } from './template-pipeline.js';
 import { getBuiltinTemplate } from './builtin-template-registry.js';
 import { assertPublicNetworkUrl } from '../security-utils.js';
+import { listDnsTemplates, resolveEffectiveDnsConfig } from '../dns-template-handler.js';
 
 function maskSensitiveLogValue(value) {
     const text = String(value ?? '');
@@ -763,6 +764,19 @@ export async function handleMisubRequest(context) {
         });
     }
 
+    // 解析自定义 DNS：Profile 指定模板 > 全局模板 > 内置默认
+    let customDns = null;
+    try {
+        const dnsTemplates = await listDnsTemplates(storageAdapter);
+        customDns = resolveEffectiveDnsConfig({
+            profileDns: currentProfile?.dnsConfig,
+            globalDns: config.dnsConfig,
+            templates: dnsTemplates
+        });
+    } catch (e) {
+        console.warn('[CustomDns] resolve failed, using default:', e?.message || e);
+    }
+
     // 2. If external mode active, build the redirect URL and return 302
     if (isExternalMode && targetFormat !== 'base64') {
         if (shouldRenderClashYamlProfileTemplateLocally({ isExternalMode, targetFormat, templateSource })) {
@@ -778,7 +792,8 @@ export async function handleMisubRequest(context) {
                     enableTfo: urlTfo === 'true' || urlTfo === '1',
                     ruleLevel,
                     regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
-                    isMeta: isMetaCore(userAgentHeader, url.searchParams)
+                    isMeta: isMetaCore(userAgentHeader, url.searchParams),
+                    customDns
                 };
                 const rendered = await ProcessorService.renderOutput({
                     targetFormat,
@@ -916,7 +931,8 @@ export async function handleMisubRequest(context) {
         enableTfo: finalEnableTfo,
         ruleLevel: ruleLevel, // 统一后的规则等级
         regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
-        isMeta: isMetaCore(userAgentHeader, url.searchParams)
+        isMeta: isMetaCore(userAgentHeader, url.searchParams),
+        customDns
     };
 
     const managedConfigUrl = buildManagedConfigUrl(request.url);

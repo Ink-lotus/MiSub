@@ -278,7 +278,10 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
     }
 
     sections.push(`[general]\nserver_check_url = http://www.gstatic.com/generate_204\nexcluded_routes = 192.168.0.0/16, 172.16.0.0/12, 100.64.0.0/10, 10.0.0.0/8`);
-    sections.push(`[dns]\nno-ipv6\nserver = 223.5.5.5\nserver = 119.29.29.29`);
+    const dnsSection = options.customDns?.quanx
+        ? `[dns]\n${options.customDns.quanx.trim()}`
+        : `[dns]\nno-ipv6\nserver = 223.5.5.5\nserver = 119.29.29.29`;
+    sections.push(dnsSection);
     sections.push(`[server_remote]`);
     sections.push(`[server_local]\n${proxyLines.join('\n')}`);
 
