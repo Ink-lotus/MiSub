@@ -1,9 +1,10 @@
 import { StorageFactory } from '../storage-adapter.js';
-import { createJsonResponse, createErrorResponse, JSON_BODY_LIMITS, readJsonWithLimit } from './utils.js';
+import { createJsonResponse, createErrorResponse, readJsonWithLimit } from './utils.js';
 
 export const KV_KEY_DNS_TEMPLATES = 'misub_dns_templates_v1';
 const MAX_TEMPLATE_COUNT = 50;
 const MAX_TEMPLATE_CONTENT_LENGTH = 128 * 1024;
+const MAX_REQUEST_BODY_LENGTH = 8 * 1024 * 1024;
 const DNS_FIELDS = ['clash', 'singbox', 'surge', 'loon', 'quanx'];
 
 function nowIso() { return new Date().toISOString(); }
@@ -31,8 +32,13 @@ export function normalizeDnsTemplates(input = []) {
             fields[f] = v;
         }
         if (totalLen > MAX_TEMPLATE_CONTENT_LENGTH) continue;
-        let id = sanitizeId(item.id) || createId();
-        while (seen.has(id)) id = `${id}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 80);
+        const baseId = sanitizeId(item.id) || createId();
+        let id = baseId;
+        let duplicateIndex = 2;
+        while (seen.has(id)) {
+            const suffix = `-${duplicateIndex++}`;
+            id = `${baseId.slice(0, 80 - suffix.length)}${suffix}`;
+        }
         seen.add(id);
         const createdAt = item.createdAt && !Number.isNaN(Date.parse(item.createdAt)) ? item.createdAt : nowIso();
         normalized.push({
@@ -83,7 +89,7 @@ export async function handleDnsTemplatesRequest(request, env) {
         if (request.method === 'POST') {
             let body;
             try {
-                body = await readJsonWithLimit(request, JSON_BODY_LIMITS.normal);
+                body = await readJsonWithLimit(request, MAX_REQUEST_BODY_LENGTH);
             } catch (e) {
                 if (e?.status === 413) return createJsonResponse({ success: false, message: e.message, error: e.message }, 413);
                 return createJsonResponse({ success: false, message: '请求数据格式错误' }, 400);

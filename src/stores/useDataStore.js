@@ -235,6 +235,7 @@ export const useDataStore = defineStore('data', () => {
         const result = await api.get('/api/dns_templates');
         dnsTemplates.value = Array.isArray(result?.data) ? result.data : [];
         lastSavedData.dnsTemplates = JSON.parse(JSON.stringify(dnsTemplates.value));
+        syncCachedDnsTemplates(dnsTemplates.value);
         return dnsTemplates.value;
     }
 
@@ -244,6 +245,7 @@ export const useDataStore = defineStore('data', () => {
             if (!result?.success && !Array.isArray(result?.data)) throw new Error(result?.message || t('store.saveDnsTemplatesFailed'));
             dnsTemplates.value = Array.isArray(result.data) ? result.data : [];
             lastSavedData.dnsTemplates = JSON.parse(JSON.stringify(dnsTemplates.value));
+            syncCachedDnsTemplates(dnsTemplates.value);
             showToast(t('store.dnsTemplatesSaved'), 'success');
             return dnsTemplates.value;
         } catch (error) {
@@ -277,6 +279,16 @@ export const useDataStore = defineStore('data', () => {
                 ...(cachedData.config || {}),
                 ...(nextConfig || {})
             }
+        });
+    }
+
+    function syncCachedDnsTemplates(nextTemplates) {
+        const cachedData = dataCache.get();
+        if (!cachedData) return;
+
+        dataCache.set({
+            ...cachedData,
+            dnsTemplates: Array.isArray(nextTemplates) ? nextTemplates : []
         });
     }
 

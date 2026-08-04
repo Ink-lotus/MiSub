@@ -12,6 +12,7 @@ import { useDataStore } from '@/stores/useDataStore.js';
 
 const { t } = useI18n();
 const dataStore = useDataStore();
+const enabledDnsTemplates = computed(() => dataStore.dnsTemplates.filter(template => template.enabled !== false));
 
 const props = defineProps({
   settings: {
@@ -269,7 +270,7 @@ watch(isExternalEngine, (enabled) => {
         <div v-if="settings.dnsConfig.mode === 'template'" class="mt-2">
           <select v-model="settings.dnsConfig.templateId"
             class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-            <option v-for="tpl in dataStore.dnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+            <option v-for="tpl in enabledDnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
           </select>
         </div>
         <p class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsPlaceholder') }}</p>
