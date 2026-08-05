@@ -1,5 +1,6 @@
 import { StorageFactory } from '../storage-adapter.js';
 import { createJsonResponse, createErrorResponse, readJsonWithLimit } from './utils.js';
+import { filterValidDnsTemplateFields } from '../../shared/dns-template-validation.js';
 
 export const KV_KEY_DNS_TEMPLATES = 'misub_dns_templates_v1';
 const MAX_TEMPLATE_COUNT = 50;
@@ -64,7 +65,7 @@ export function resolveEffectiveDnsConfig({ profileDns = {}, globalDns = {}, tem
         if (mode !== 'template' || !templateId) return null;
         const tpl = templates.find(t => t.enabled !== false && t.id === templateId);
         if (!tpl) return null;
-        return { clash: tpl.clash || '', singbox: tpl.singbox || '', surge: tpl.surge || '', loon: tpl.loon || '', quanx: tpl.quanx || '' };
+        return filterValidDnsTemplateFields(tpl);
     };
     const profileMode = profileDns?.mode || 'global';
     if (profileMode === 'template') return pick('template', profileDns?.templateId);

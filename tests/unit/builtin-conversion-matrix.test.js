@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import yaml from 'js-yaml';
 import { ProcessorService } from '../../functions/services/processor-service.js';
 import {
     resolveBuiltinEngineFlags,
@@ -135,6 +136,86 @@ MATCH,MyGroup
         }
 
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('applies custom DNS after rendering builtin presets for supported targets', async () => {
+        const customDns = {
+            clash: 'enable: true\nnameserver:\n  - 9.9.9.9',
+            singbox: JSON.stringify({ servers: [{ tag: 'custom', address: '9.9.9.9' }] }),
+            surge: '9.9.9.9, system',
+            loon: 'system, 9.9.9.9',
+            quanx: 'no-ipv6\nserver = 9.9.9.9'
+        };
+        const cases = [
+            {
+                targetFormat: 'clash',
+                assertDns: content => expect(yaml.load(content).dns).toEqual({
+                    enable: true,
+                    nameserver: ['9.9.9.9']
+                })
+            },
+            {
+                targetFormat: 'singbox',
+                assertDns: content => expect(JSON.parse(content).dns).toEqual({
+                    servers: [{ tag: 'custom', address: '9.9.9.9' }]
+                })
+            },
+            {
+                targetFormat: 'surge&ver=4',
+                assertDns: content => expect(content).toContain('dns-server = 9.9.9.9, system')
+            },
+            {
+                targetFormat: 'loon',
+                assertDns: content => expect(content).toContain('dns-server = system, 9.9.9.9')
+            },
+            {
+                targetFormat: 'quanx',
+                assertDns: content => expect(content).toContain('[dns]\nno-ipv6\nserver = 9.9.9.9\n\n[server_local]')
+            }
+        ];
+
+        for (const testCase of cases) {
+            const result = await ProcessorService.renderOutput({
+                targetFormat: testCase.targetFormat,
+                combinedNodeList: NODE_LIST,
+                subName: 'Custom DNS Matrix Test',
+                config: { UpdateInterval: 86400 },
+                builtinOptions: {
+                    ruleLevel: 'std',
+                    enableUdp: true,
+                    skipCertVerify: false,
+                    customDns
+                },
+                templateSource: { kind: 'builtin', value: 'clash_acl4ssr_lite' },
+                managedConfigUrl: '',
+                storageAdapter
+            });
+
+            testCase.assertDns(result.content);
+        }
+    });
+
+    it('does not apply custom DNS to remote templates', async () => {
+        const result = await ProcessorService.renderOutput({
+            targetFormat: 'clash',
+            combinedNodeList: NODE_LIST,
+            subName: 'Remote Template Scope Test',
+            config: { UpdateInterval: 86400 },
+            builtinOptions: {
+                ruleLevel: 'std',
+                enableUdp: true,
+                skipCertVerify: false,
+                customDns: { clash: 'enable: true\nnameserver:\n  - 9.9.9.9' }
+            },
+            templateSource: { kind: 'remote', value: 'https://example.com/template.ini' },
+            managedConfigUrl: '',
+            storageAdapter
+        });
+
+        expect(yaml.load(result.content).dns.nameserver).toEqual([
+            'https://dns.alidns.com/dns-query',
+            'https://doh.pub/dns-query'
+        ]);
     });
 
     it('keeps Hiddify-compatible Clash output on the conservative builtin path even when a template is configured', async () => {

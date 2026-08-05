@@ -12,6 +12,7 @@ import { resolveRuleTemplateSource } from '../modules/rule-template-handler.js';
 import { base64EncodeUtf8 } from '../modules/utils.js';
 import yaml from 'js-yaml';
 import { urlsToClashProxies } from '../utils/url-to-clash.js';
+import { clashFix } from '../utils/format-utils.js';
 
 function getTemplateExtension(templateUrl) {
     const raw = typeof templateUrl === 'string' ? templateUrl.trim() : '';
@@ -91,6 +92,61 @@ export function renderClashYamlProfileTemplate(templateText, nodeList, options =
         quotingType: '"',
         forceQuotes: false
     });
+}
+
+function applyCustomDnsToBuiltinPreset(content, targetFormat, customDns) {
+    const normalizedTarget = String(targetFormat || '').toLowerCase();
+    const targetKey = normalizedTarget.startsWith('surge&ver=')
+        ? 'surge'
+        : (normalizedTarget === 'sing-box' ? 'singbox' : normalizedTarget);
+    const dnsText = typeof customDns?.[targetKey] === 'string' ? customDns[targetKey].trim() : '';
+    if (!dnsText) return content;
+
+    try {
+        if (targetKey === 'clash') {
+            const config = yaml.load(content);
+            const parsedDns = yaml.load(dnsText);
+            if (!config || typeof config !== 'object' || Array.isArray(config)) return content;
+            if (!parsedDns || typeof parsedDns !== 'object' || Array.isArray(parsedDns)) return content;
+            config.dns = parsedDns;
+            return clashFix(yaml.dump(config, {
+                indent: 2,
+                lineWidth: -1,
+                noRefs: true,
+                quotingType: '"',
+                forceQuotes: false
+            }));
+        }
+
+        if (targetKey === 'singbox') {
+            const config = JSON.parse(content);
+            const parsedDns = JSON.parse(dnsText);
+            if (!config || typeof config !== 'object' || Array.isArray(config)) return content;
+            if (!parsedDns || typeof parsedDns !== 'object' || Array.isArray(parsedDns)) return content;
+            config.dns = parsedDns;
+            return JSON.stringify(config, null, 2) + '\n';
+        }
+
+        if (targetKey === 'surge' || targetKey === 'loon') {
+            return content.replace(
+                /^(\s*dns-server\s*=).*$/mi,
+                (_, prefix) => `${prefix} ${dnsText}`
+            );
+        }
+
+        if (targetKey === 'quanx') {
+            const eol = content.includes('\r\n') ? '\r\n' : '\n';
+            const normalizedDnsText = dnsText.replace(/\r?\n/g, eol);
+            return content.replace(
+                /(^\[dns\][^\S\r\n]*\r?\n)[\s\S]*?(?=\r?\n\[[^\]\r\n]+\])/im,
+                (_, header) => `${header}${normalizedDnsText}${eol}`
+            );
+        }
+    } catch (error) {
+        console.warn('[ProcessorService] builtin preset custom DNS invalid, keep default:', error?.message || error);
+    }
+
+    return content;
 }
 
 export class ProcessorService {
@@ -221,6 +277,10 @@ export class ProcessorService {
                 finalContent = renderClashYamlProfileTemplate(templateText, combinedNodeList, builtinOptions);
                 contentType = 'application/x-yaml; charset=utf-8';
                 headers['X-MiSub-Template-Mode'] = 'clash-yaml-profile';
+            }
+
+            if (builtinTemplateEntry && templateText) {
+                finalContent = applyCustomDnsToBuiltinPreset(finalContent, targetFormat, builtinOptions.customDns);
             }
         }
 

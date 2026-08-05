@@ -45,12 +45,12 @@ describe('DNS 模板归一化', () => {
 
 describe('DNS 生效优先级', () => {
   const templates = [
-    { id: 't1', enabled: true, clash: 'a', singbox: '', surge: '', loon: '', quanx: '' },
+    { id: 't1', enabled: true, clash: 'enable: true', singbox: '', surge: '', loon: '', quanx: '' },
     { id: 't2', enabled: false, clash: 'b' },
   ];
   it('Profile 指定模板优先', () => {
     const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'template', templateId: 't1' }, globalDns: { mode: 'template', templateId: 't2' }, templates });
-    expect(r.clash).toBe('a');
+    expect(r.clash).toBe('enable: true');
   });
   it('Profile 默认内置 → 忽略全局', () => {
     const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'builtin' }, globalDns: { mode: 'template', templateId: 't1' }, templates });
@@ -58,7 +58,7 @@ describe('DNS 生效优先级', () => {
   });
   it('Profile 继承全局(global) → 用全局模板', () => {
     const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'global' }, globalDns: { mode: 'template', templateId: 't1' }, templates });
-    expect(r.clash).toBe('a');
+    expect(r.clash).toBe('enable: true');
   });
   it('全局内置默认 → null', () => {
     const r = resolveEffectiveDnsConfig({}, { /* no-op */ });
@@ -67,6 +67,50 @@ describe('DNS 生效优先级', () => {
   it('禁用或未找到的模板 → null', () => {
     const r = resolveEffectiveDnsConfig({ profileDns: { mode: 'template', templateId: 't2' }, globalDns: {}, templates });
     expect(r).toBeNull();
+  });
+
+  it('无效客户端字段应独立回退默认 DNS', () => {
+    const invalidTemplate = {
+      id: 'invalid',
+      enabled: true,
+      clash: 'dns:\n  enable: true',
+      singbox: '{"dns":{"servers":[]}}',
+      surge: 'dns-server = 1.1.1.1',
+      loon: '1.1.1.1\n8.8.8.8',
+      quanx: '[dns]\nserver = 1.1.1.1'
+    };
+
+    const result = resolveEffectiveDnsConfig({
+      globalDns: { mode: 'template', templateId: 'invalid' },
+      templates: [invalidTemplate]
+    });
+
+    expect(result).toEqual({ clash: '', singbox: '', surge: '', loon: '', quanx: '' });
+  });
+
+  it('格式有效的客户端字段应保持原值', () => {
+    const validTemplate = {
+      id: 'valid',
+      enabled: true,
+      clash: 'enable: true\nnameserver:\n  - 1.1.1.1',
+      singbox: '{"servers":[{"tag":"custom","address":"1.1.1.1"}]}',
+      surge: '1.1.1.1, system',
+      loon: 'system, 1.1.1.1',
+      quanx: 'no-ipv6\nserver = 1.1.1.1'
+    };
+
+    const result = resolveEffectiveDnsConfig({
+      globalDns: { mode: 'template', templateId: 'valid' },
+      templates: [validTemplate]
+    });
+
+    expect(result).toEqual({
+      clash: validTemplate.clash,
+      singbox: validTemplate.singbox,
+      surge: validTemplate.surge,
+      loon: validTemplate.loon,
+      quanx: validTemplate.quanx
+    });
   });
 });
 

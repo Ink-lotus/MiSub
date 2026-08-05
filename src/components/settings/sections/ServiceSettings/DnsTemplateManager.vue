@@ -2,10 +2,31 @@
 import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
+import { validateDnsTemplate } from '../../../../../shared/dns-template-validation.js';
 
 const { t } = useI18n();
 
 const dataStore = useDataStore();
+
+const dnsFields = [
+  { key: 'clash', name: 'Clash', labelKey: 'settings.dnsTemplateContentClash' },
+  { key: 'singbox', name: 'Sing-Box', labelKey: 'settings.dnsTemplateContentSingbox' },
+  { key: 'surge', name: 'Surge', labelKey: 'settings.dnsTemplateContentSurge' },
+  { key: 'loon', name: 'Loon', labelKey: 'settings.dnsTemplateContentLoon' },
+  { key: 'quanx', name: 'Quantumult X', labelKey: 'settings.dnsTemplateContentQuanx' }
+];
+
+const validationReasonKeys = {
+  invalidYaml: 'settings.dnsValidationInvalidYaml',
+  invalidJson: 'settings.dnsValidationInvalidJson',
+  objectRequired: 'settings.dnsValidationObjectRequired',
+  dnsWrapper: 'settings.dnsValidationDnsWrapper',
+  singleLineRequired: 'settings.dnsValidationSingleLine',
+  dnsServerWrapper: 'settings.dnsValidationDnsServerWrapper',
+  sectionWrapper: 'settings.dnsValidationSectionWrapper',
+  invalidLine: 'settings.dnsValidationInvalidLine',
+  unsupportedField: 'settings.dnsValidationUnsupportedField'
+};
 
 const blankTemplate = () => ({
   id: '',
@@ -26,6 +47,44 @@ const isLoading = ref(false);
 
 const selectedTemplate = computed(() => localTemplates.value.find(item => item.id === selectedId.value) || null);
 const hasTemplates = computed(() => localTemplates.value.length > 0);
+const selectedValidation = computed(() => validateDnsTemplate(selectedTemplate.value || {}));
+
+function validationResult(field) {
+  return selectedValidation.value[field] || { status: 'empty', code: '' };
+}
+
+function validationLabel(field) {
+  const status = validationResult(field).status;
+  if (status === 'valid') return t('settings.dnsValidationValid');
+  if (status === 'invalid') return t('settings.dnsValidationInvalid');
+  return t('settings.dnsValidationEmpty');
+}
+
+function validationReason(field) {
+  const key = validationReasonKeys[validationResult(field).code];
+  return key ? t(key) : '';
+}
+
+function statusTextClass(field) {
+  const status = validationResult(field).status;
+  if (status === 'valid') return 'text-emerald-600 dark:text-emerald-400';
+  if (status === 'invalid') return 'text-red-600 dark:text-red-400';
+  return 'text-gray-400 dark:text-gray-500';
+}
+
+function statusDotClass(field) {
+  const status = validationResult(field).status;
+  if (status === 'valid') return 'bg-emerald-500';
+  if (status === 'invalid') return 'bg-red-500';
+  return 'bg-gray-300 dark:bg-gray-600';
+}
+
+function textareaBorderClass(field) {
+  const status = validationResult(field).status;
+  if (status === 'valid') return 'border-emerald-300 dark:border-emerald-700';
+  if (status === 'invalid') return 'border-red-300 dark:border-red-700';
+  return 'border-gray-200 dark:border-gray-700';
+}
 
 function cloneTemplates(items) {
   return JSON.parse(JSON.stringify(Array.isArray(items) ? items : []));
@@ -122,6 +181,7 @@ async function saveTemplates() {
           type="button"
           @click="saveTemplates"
           :disabled="isSaving"
+          data-dns-save
           class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
         >
           {{ t('settings.dnsTemplatesSave') }}
@@ -161,29 +221,36 @@ async function saveTemplates() {
           </label>
         </div>
 
-        <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.dnsTemplateContentClash') }}</span>
-          <textarea v-model="selectedTemplate.clash" rows="4" spellcheck="false" :placeholder="t('settings.dnsPlaceholder')" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"></textarea>
-        </label>
+        <div data-dns-validation-summary class="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-gray-200 py-2 dark:border-gray-700">
+          <span class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('settings.dnsValidationSummary') }}</span>
+          <span v-for="field in dnsFields" :key="field.key" class="flex items-center gap-1.5 text-[11px]">
+            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
+            <span class="font-medium text-gray-600 dark:text-gray-300">{{ field.name }}</span>
+            <span :class="statusTextClass(field.key)">{{ validationLabel(field.key) }}</span>
+          </span>
+        </div>
 
-        <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.dnsTemplateContentSingbox') }}</span>
-          <textarea v-model="selectedTemplate.singbox" rows="4" spellcheck="false" :placeholder="t('settings.dnsPlaceholder')" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"></textarea>
-        </label>
-
-        <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.dnsTemplateContentSurge') }}</span>
-          <textarea v-model="selectedTemplate.surge" rows="4" spellcheck="false" :placeholder="t('settings.dnsPlaceholder')" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"></textarea>
-        </label>
-
-        <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.dnsTemplateContentLoon') }}</span>
-          <textarea v-model="selectedTemplate.loon" rows="4" spellcheck="false" :placeholder="t('settings.dnsPlaceholder')" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"></textarea>
-        </label>
-
-        <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.dnsTemplateContentQuanx') }}</span>
-          <textarea v-model="selectedTemplate.quanx" rows="4" spellcheck="false" :placeholder="t('settings.dnsPlaceholder')" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"></textarea>
+        <label v-for="field in dnsFields" :key="field.key" class="block">
+          <span class="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t(field.labelKey) }}</span>
+            <span :data-dns-status="field.key" class="flex items-center gap-1.5 text-[11px] font-semibold" :class="statusTextClass(field.key)">
+              <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
+              {{ validationLabel(field.key) }}
+            </span>
+          </span>
+          <textarea
+            v-model="selectedTemplate[field.key]"
+            :data-dns-field="field.key"
+            :aria-invalid="validationResult(field.key).status === 'invalid'"
+            rows="4"
+            spellcheck="false"
+            :placeholder="t('settings.dnsPlaceholder')"
+            :class="textareaBorderClass(field.key)"
+            class="block w-full rounded-lg border bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:bg-gray-950 dark:text-gray-100"
+          ></textarea>
+          <p v-if="validationResult(field.key).status === 'invalid'" class="mt-1 text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+            {{ validationReason(field.key) }} {{ t('settings.dnsValidationFallback') }}
+          </p>
         </label>
 
         <div class="flex flex-wrap items-center justify-between gap-3">
