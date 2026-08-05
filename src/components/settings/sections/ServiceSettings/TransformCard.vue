@@ -235,45 +235,47 @@ watch(isExternalEngine, (enabled) => {
           </div>
         </div>
 
-        <div :class="{ 'opacity-50 pointer-events-none': isBuiltinMode }" class="transition-all">
-          <label class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-purple-600 dark:text-purple-400">
-            {{ t('settings.transformTemplateConfig') }}
-          </label>
-          <TransformSelector
-            v-model="settings.transformConfig"
-            @select-asset="selectedAsset = $event"
-            type="config"
-            :force-custom="settings.transformConfigMode === 'custom'"
-            :custom-templates-only="settings.transformConfigMode === 'custom_template'"
-            :placeholder="t('settings.transformPresetPlaceholder')"
-            :custom-placeholder="t('settings.transformRemotePlaceholder')"
-            :allowEmpty="settings.transformConfigMode === 'builtin'"
-            :exclude-builtin-assets="isExternalEngine"
-          />
-          <p v-if="settings.transformConfigMode === 'custom_template'" class="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-[10px] leading-relaxed text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
-            {{ t('settings.transformCustomTemplateSelectHint') }}
-          </p>
-        </div>
-      </div>
+        <div>
+          <div :class="{ 'opacity-50 pointer-events-none': isBuiltinMode }" class="transition-all">
+            <label class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {{ t('settings.transformTemplateConfig') }}
+            </label>
+            <TransformSelector
+              v-model="settings.transformConfig"
+              @select-asset="selectedAsset = $event"
+              type="config"
+              :force-custom="settings.transformConfigMode === 'custom'"
+              :custom-templates-only="settings.transformConfigMode === 'custom_template'"
+              :placeholder="t('settings.transformPresetPlaceholder')"
+              :custom-placeholder="t('settings.transformRemotePlaceholder')"
+              :allowEmpty="settings.transformConfigMode === 'builtin'"
+              :exclude-builtin-assets="isExternalEngine"
+            />
+            <p v-if="settings.transformConfigMode === 'custom_template'" class="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-[10px] leading-relaxed text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
+              {{ t('settings.transformCustomTemplateSelectHint') }}
+            </p>
+          </div>
 
-      <div class="mt-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 dark:border-white/10 dark:bg-white/5">
-        <div class="mb-3 flex items-center justify-between">
-          <label class="block text-xs font-medium uppercase tracking-wider text-purple-600 dark:text-purple-400">
-            {{ t('settings.dnsConfigTitle') }}
-          </label>
-          <select v-model="settings.dnsConfig.mode"
-            class="block rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-            <option value="builtin">{{ t('settings.dnsConfigModeBuiltin') }}</option>
-            <option value="template">{{ t('settings.dnsConfigModeTemplate') }}</option>
-          </select>
+          <div class="mt-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 dark:border-white/10 dark:bg-white/5">
+            <div class="mb-3 flex items-center justify-between">
+              <label class="block text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {{ t('settings.dnsConfigTitle') }}
+              </label>
+              <select v-model="settings.dnsConfig.mode"
+                class="block rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+                <option value="builtin">{{ t('settings.dnsConfigModeBuiltin') }}</option>
+                <option value="template">{{ t('settings.dnsConfigModeTemplate') }}</option>
+              </select>
+            </div>
+            <div v-if="settings.dnsConfig.mode === 'template'" class="mt-2">
+              <select v-model="settings.dnsConfig.templateId"
+                class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+                <option v-for="tpl in enabledDnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+              </select>
+            </div>
+            <p class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsPlaceholder') }}</p>
+          </div>
         </div>
-        <div v-if="settings.dnsConfig.mode === 'template'" class="mt-2">
-          <select v-model="settings.dnsConfig.templateId"
-            class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-            <option v-for="tpl in enabledDnsTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
-          </select>
-        </div>
-        <p class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsPlaceholder') }}</p>
       </div>
     </div>
 

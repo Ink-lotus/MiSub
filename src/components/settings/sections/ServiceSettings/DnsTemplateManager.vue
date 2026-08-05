@@ -44,6 +44,7 @@ const localTemplates = ref([]);
 const selectedId = ref('');
 const isSaving = ref(false);
 const isLoading = ref(false);
+const expandedFields = ref(new Set());
 
 const selectedTemplate = computed(() => localTemplates.value.find(item => item.id === selectedId.value) || null);
 const hasTemplates = computed(() => localTemplates.value.length > 0);
@@ -101,6 +102,28 @@ function syncFromStore() {
 }
 
 watch(() => dataStore.dnsTemplates, syncFromStore, { immediate: true, deep: true });
+watch(selectedId, () => {
+  expandedFields.value = new Set();
+});
+
+function isFieldExpanded(field) {
+  return expandedFields.value.has(field);
+}
+
+function toggleField(field) {
+  const next = new Set(expandedFields.value);
+  if (next.has(field)) {
+    next.delete(field);
+  } else {
+    next.add(field);
+  }
+  expandedFields.value = next;
+}
+
+function textareaRows(value) {
+  const lineCount = String(value || '').split('\n').length;
+  return Math.min(12, Math.max(4, lineCount));
+}
 
 function createTemplate() {
   const now = Date.now().toString(36);
@@ -230,28 +253,56 @@ async function saveTemplates() {
           </span>
         </div>
 
-        <label v-for="field in dnsFields" :key="field.key" class="block">
-          <span class="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t(field.labelKey) }}</span>
-            <span :data-dns-status="field.key" class="flex items-center gap-1.5 text-[11px] font-semibold" :class="statusTextClass(field.key)">
-              <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
-              {{ validationLabel(field.key) }}
-            </span>
-          </span>
-          <textarea
-            v-model="selectedTemplate[field.key]"
-            :data-dns-field="field.key"
-            :aria-invalid="validationResult(field.key).status === 'invalid'"
-            rows="4"
-            spellcheck="false"
-            :placeholder="t('settings.dnsPlaceholder')"
-            :class="textareaBorderClass(field.key)"
-            class="block w-full rounded-lg border bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:bg-gray-950 dark:text-gray-100"
-          ></textarea>
-          <p v-if="validationResult(field.key).status === 'invalid'" class="mt-1 text-[11px] leading-relaxed text-red-600 dark:text-red-400">
-            {{ validationReason(field.key) }} {{ t('settings.dnsValidationFallback') }}
-          </p>
-        </label>
+        <div class="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white dark:divide-gray-700 dark:border-gray-700 dark:bg-gray-900/40">
+          <div v-for="field in dnsFields" :key="field.key">
+            <button
+              type="button"
+              :data-dns-toggle="field.key"
+              :aria-expanded="isFieldExpanded(field.key)"
+              :aria-controls="`dns-field-panel-${field.key}`"
+              @click="toggleField(field.key)"
+              class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
+            >
+              <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t(field.labelKey) }}</span>
+              <span class="flex shrink-0 items-center gap-2">
+                <span :data-dns-status="field.key" class="flex items-center gap-1.5 text-[11px] font-semibold" :class="statusTextClass(field.key)">
+                  <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
+                  {{ validationLabel(field.key) }}
+                </span>
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4 text-gray-400 transition-transform duration-200"
+                  :class="{ 'rotate-90': isFieldExpanded(field.key) }"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </span>
+            </button>
+            <div
+              v-if="isFieldExpanded(field.key)"
+              :id="`dns-field-panel-${field.key}`"
+              class="border-t border-gray-100 px-3 pb-3 pt-2 dark:border-gray-800"
+            >
+              <textarea
+                v-model="selectedTemplate[field.key]"
+                :data-dns-field="field.key"
+                :aria-label="t(field.labelKey)"
+                :aria-invalid="validationResult(field.key).status === 'invalid'"
+                :rows="textareaRows(selectedTemplate[field.key])"
+                spellcheck="false"
+                :placeholder="t('settings.dnsPlaceholder')"
+                :class="textareaBorderClass(field.key)"
+                class="block w-full resize-none rounded-lg border bg-white px-3 py-2 font-mono text-xs leading-relaxed dark:bg-gray-950 dark:text-gray-100"
+              ></textarea>
+              <p v-if="validationResult(field.key).status === 'invalid'" class="mt-1 text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+                {{ validationReason(field.key) }} {{ t('settings.dnsValidationFallback') }}
+              </p>
+            </div>
+          </div>
+        </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3">
           <label class="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">

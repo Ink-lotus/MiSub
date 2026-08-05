@@ -34,9 +34,42 @@ describe('DNS 模板实时校验', () => {
     expect(wrapper.get('[data-dns-status="singbox"]').text()).toContain('格式有效');
     expect(wrapper.get('[data-dns-status="surge"]').text()).toContain('未配置');
 
+    await wrapper.get('[data-dns-toggle="clash"]').trigger('click');
     await wrapper.get('textarea[data-dns-field="clash"]').setValue('enable: true');
 
     expect(wrapper.get('[data-dns-status="clash"]').text()).toContain('格式有效');
+  });
+
+  it('各客户端输入框默认折叠并可独立展开', async () => {
+    const wrapper = mount(DnsTemplateManager, {
+      global: { plugins: [pinia, createI18n({ initialLocale: 'zh-CN' })] }
+    });
+
+    expect(wrapper.findAll('textarea[data-dns-field]')).toHaveLength(0);
+    expect(wrapper.get('[data-dns-toggle="clash"]').attributes('aria-expanded')).toBe('false');
+
+    await wrapper.get('[data-dns-toggle="clash"]').trigger('click');
+
+    expect(wrapper.get('textarea[data-dns-field="clash"]').exists()).toBe(true);
+    expect(wrapper.find('textarea[data-dns-field="singbox"]').exists()).toBe(false);
+    expect(wrapper.get('[data-dns-toggle="clash"]').attributes('aria-expanded')).toBe('true');
+  });
+
+  it('输入框高度按内容行数在 4 到 12 行之间变化', async () => {
+    const wrapper = mount(DnsTemplateManager, {
+      global: { plugins: [pinia, createI18n({ initialLocale: 'zh-CN' })] }
+    });
+
+    await wrapper.get('[data-dns-toggle="clash"]').trigger('click');
+    const textarea = wrapper.get('textarea[data-dns-field="clash"]');
+
+    expect(textarea.attributes('rows')).toBe('4');
+
+    await textarea.setValue(Array.from({ length: 6 }, (_, index) => `line-${index}`).join('\n'));
+    expect(textarea.attributes('rows')).toBe('6');
+
+    await textarea.setValue(Array.from({ length: 13 }, (_, index) => `line-${index}`).join('\n'));
+    expect(textarea.attributes('rows')).toBe('12');
   });
 
   it('存在无效字段时仍允许保存草稿', async () => {
