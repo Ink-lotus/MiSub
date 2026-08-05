@@ -279,7 +279,7 @@ export class ProcessorService {
                 headers['X-MiSub-Template-Mode'] = 'clash-yaml-profile';
             }
 
-            if (builtinTemplateEntry && templateText) {
+            if ((builtinTemplateEntry || customTemplateEntry) && templateText) {
                 finalContent = applyCustomDnsToBuiltinPreset(finalContent, targetFormat, builtinOptions.customDns);
             }
         }

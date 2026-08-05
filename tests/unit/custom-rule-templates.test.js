@@ -106,4 +106,36 @@ describe('自定义规则模板 Phase 1 后端模型/API/渲染', () => {
         expect(parsed['proxy-groups'].some(group => group.name === '🚀 节点选择')).toBe(true);
         expect(parsed.rules).toContain('MATCH,🚀 节点选择');
     });
+
+    it('applies custom DNS after rendering a custom rule template', async () => {
+        const storageAdapter = createMemoryStorage({
+            misub_rule_templates_v1: [{
+                id: 'tpl-a',
+                name: '本地模板',
+                type: 'ini',
+                content: '[Proxy Group]\n🚀 节点选择 = select, []AUTO, DIRECT\n\n[Rule]\nMATCH,🚀 节点选择'
+            }]
+        });
+
+        const result = await ProcessorService.renderOutput({
+            targetFormat: 'clash',
+            combinedNodeList: NODE_LIST,
+            subName: 'Custom DNS',
+            config: { UpdateInterval: 86400 },
+            builtinOptions: {
+                ruleLevel: 'none',
+                enableUdp: true,
+                skipCertVerify: false,
+                customDns: { clash: 'enable: true\nnameserver:\n  - 9.9.9.9' }
+            },
+            templateSource: { kind: 'custom', value: 'tpl-a' },
+            managedConfigUrl: '',
+            storageAdapter
+        });
+
+        expect(yaml.load(result.content).dns).toEqual({
+            enable: true,
+            nameserver: ['9.9.9.9']
+        });
+    });
 });
