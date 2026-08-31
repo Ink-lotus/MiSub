@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
+import RuleGeneratorModal from '@/components/modals/RuleGeneratorModal.vue';
 
 const { t } = useI18n();
 
@@ -111,6 +112,22 @@ async function saveTemplates() {
     isSaving.value = false;
   }
 }
+
+// 可视化编辑器：只回写 content，落盘仍走上面的 saveTemplates（§7.1）
+const showGenerator = ref(false);
+
+/**
+ * 顶栏入口。没有模板或未选中时先建一张，避免入口被
+ * 「有模板」+「已选中」两层条件挡住而看不见。
+ */
+function openGenerator() {
+  if (!selectedTemplate.value) createTemplate();
+  showGenerator.value = true;
+}
+
+function applyGeneratedContent(ini) {
+  if (selectedTemplate.value) selectedTemplate.value.content = ini;
+}
 </script>
 
 <template>
@@ -137,6 +154,13 @@ async function saveTemplates() {
           class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
         >
           {{ t('settings.ruleTemplatesNew') }}
+        </button>
+        <button
+          type="button"
+          @click="openGenerator"
+          class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+        >
+          {{ t('settings.ruleGenOpen') }}
         </button>
         <button
           type="button"
@@ -187,7 +211,16 @@ async function saveTemplates() {
         </label>
 
         <label class="block">
-          <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.ruleTemplateContent') }}</span>
+          <div class="mb-1 flex items-center justify-between gap-2">
+            <span class="block text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t('settings.ruleTemplateContent') }}</span>
+            <button
+              type="button"
+              @click="showGenerator = true"
+              class="rounded-lg border border-indigo-200 px-2.5 py-1 text-[11px] font-semibold text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-900/20"
+            >
+              {{ t('settings.ruleGenOpen') }}
+            </button>
+          </div>
           <textarea
             v-model="selectedTemplate.content"
             rows="12"
@@ -208,5 +241,12 @@ async function saveTemplates() {
         </div>
       </div>
     </div>
+
+    <RuleGeneratorModal
+      v-if="selectedTemplate"
+      v-model:show="showGenerator"
+      :content="selectedTemplate.content"
+      @apply="applyGeneratedContent"
+    />
   </div>
 </template>

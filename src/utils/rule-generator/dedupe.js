@@ -115,17 +115,32 @@ export function findSourceConflicts(cards = []) {
 }
 
 /**
- * 从指定卡片移除一条来源；`sources` 因此清空的卡片整卡移除（§4.4）。
+ * 从卡片集合里移除一条来源；`sources` 因此清空的卡片整卡移除。
  * 这是两个处理动作共用的唯一原语。
+ *
+ * `cardId` 允许是**大卡片**：冲突条目携带的是顶层卡片 id，而来源实际长在它的
+ * 小卡片上（大卡片自身 sources 恒空）。因此先在该卡片上找，找不到再到它的
+ * 小卡片里找 —— 否则会把大卡片误删、留下孤立的小卡片，冲突还在。
  *
  * @returns {object[]} 新的卡片数组
  */
 export function removeSourceFromCard(cards = [], cardId, sourceId) {
-    const next = [];
+    const list = Array.isArray(cards) ? cards : [];
 
-    (Array.isArray(cards) ? cards : []).forEach(card => {
+    // 定位真正持有该来源的卡片：优先目标卡片自身，其次它的小卡片
+    const target = list.find(card => card?.id === cardId);
+    const ownsIt = card => (card?.sources || []).some(source => source?.id === sourceId);
+
+    let holderId = cardId;
+    if (target && !ownsIt(target)) {
+        const child = list.find(card => card?.parentId === cardId && ownsIt(card));
+        if (child) holderId = child.id;
+    }
+
+    const next = [];
+    list.forEach(card => {
         if (!card) return;
-        if (card.id !== cardId) {
+        if (card.id !== holderId) {
             next.push(card);
             return;
         }

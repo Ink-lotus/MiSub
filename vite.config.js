@@ -65,7 +65,20 @@ export default defineConfig({
         target: 'http://127.0.0.1:8787',
         changeOrigin: true,
       },
-      '^/(?!@|api/|sub/|assets/|@vite/|src/|icons/|images/)[^/]+/[^/]+$': {
+      // 订阅链接 /{token}/{profile} 反代到后端。
+      //
+      // 这条规则按“两段式路径”匹配，因此任何同形的**前端**路径都必须显式排除，
+      // 否则会被转给后端、按未知 token 返回 404：
+      //   dashboard/ —— /dashboard/settings 等前端路由。表现为点设置页没反应、
+      //                 多点几次跳 404 页。
+      //   shared/    —— /shared/dns-template-validation.js，被 DnsTemplateManager.vue
+      //                 静态引入。它 404 会让整条 SettingsView → ServiceSettings →
+      //                 TransformCard → DnsTemplateManager 的模块链断掉，
+      //                 路由报 "Failed to fetch dynamically imported module"，
+      //                 设置页渲染成空白 <main>。
+      //
+      // 仅影响 vite dev；生产由 Pages 直接托管这些静态资源并兜 SPA fallback。
+      '^/(?!@|api/|sub/|assets/|@vite/|src/|icons/|images/|dashboard/|shared/)[^/]+/[^/]+$': {
         target: 'http://127.0.0.1:8787',
         changeOrigin: true,
       },
