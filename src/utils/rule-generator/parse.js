@@ -330,12 +330,19 @@ function recoverFromBody(iniText) {
         card.sources.push({ id: `${card.id}-s${card.sources.length + 1}`, ...source });
     }
 
-    /** 让某张小卡片的父卡片跟进同一个桶，保持嵌套关系。 */
+    /**
+     * 让某张小卡片的父卡片跟进同一个桶，保持嵌套关系。
+     *
+     * 组名就是这张小卡片自己的名字时改走另一条路：把它标成 `standalone`
+     * 让它自己当顶层卡片。拉父卡片进来会把父卡片改成同一个名字（父子同名），
+     * 而只是不拉父卡片又会在父卡片本来就同桶时被它吞掉、丢掉这个组。
+     */
     function followParent(card, bucket, policy) {
+        if (policy === card.name) {
+            card.standalone = true;
+            return;
+        }
         if (!card.parentId || !byId.has(card.parentId)) return;
-        // 组名就是这张小卡片自己的名字 → 让它自己当顶层卡片。
-        // 拉父卡片进来会把父卡片改成同一个名字，父子同名
-        if (policy === card.name) return;
 
         const parent = byId.get(card.parentId);
         if (touchedParents.has(parent.id)) return;
@@ -374,6 +381,8 @@ function recoverFromBody(iniText) {
         const twin = known ? null : byName.get(policy);
         if (twin && twin.parentId !== null) {
             twin.bucket = 'flexible';
+            // 组名就是它自己的名字，因此它必须自己成一个组，不能被父卡片吞掉
+            twin.standalone = true;
             absorb(twin, source);
             return;
         }

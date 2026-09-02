@@ -15,7 +15,8 @@ import {
     RESERVED_POLICY_NAMES,
     OTHER_REGION_ID,
     BUILTIN_CARDS,
-    effectiveSources
+    effectiveSources,
+    isTopLevelIn
 } from './catalog.js';
 import { findSourceConflicts, sourceKey } from './dedupe.js';
 
@@ -178,15 +179,10 @@ function checkFlexibleNames(state) {
         .filter(region => region?.enabled)
         .forEach(region => taken.set(String(region.name || '').trim(), '地区组'));
 
-    const byId = new Map(cards.map(card => [card?.id, card]));
-
     cards.forEach((card, index) => {
-        if (!card || card.bucket !== 'flexible') return;
-        // 只看顶层卡片：跟父卡片同桶的小卡片不单独成组，其名字不是组名
-        if (card.parentId !== null) {
-            const parent = byId.get(card.parentId);
-            if (parent && parent.bucket === 'flexible') return;
-        }
+        // 只看顶层卡片：由父卡片代表的小卡片不单独成组，其名字不是组名。
+        // 标了 standalone 的小卡片是顶层，因此它的名字也要查重
+        if (!isTopLevelIn(cards, card, 'flexible')) return;
         // 大卡片自身 sources 恒空，必须按 effectiveSources 判断是否真的产出
         if (effectiveSources(cards, card).length === 0) return;
 
@@ -218,6 +214,8 @@ function checkFlexibleNames(state) {
  *
  * 出口不再绑在卡片上（由策略组决定），因此原先的「目标有效性」校验全部作废，
  * 换成这一条：只有真正空掉的大卡片才提示，有小卡片的大卡片不该被误报。
+ * 判定走 effectiveSources()，因此小卡片被拖走、或被标成 standalone 单独成组，
+ * 都算这张大卡片空了。
  */
 function checkEmptyParents(state) {
     const out = [];
@@ -226,11 +224,7 @@ function checkEmptyParents(state) {
     cards.forEach((card, index) => {
         if (!card || card.parentId !== null) return;
         if (card.bucket === 'off') return;
-        if ((card.sources || []).length > 0) return;
-
-        const hasChild = cards.some(child =>
-            child && child.parentId === card.id && child.bucket === card.bucket);
-        if (hasChild) return;
+        if (effectiveSources(cards, card).length > 0) return;
 
         out.push(finding('warn', `cards[${index}]`,
             `集合「${card.name}」里没有任何规则卡片，不会产出内容`));
@@ -241,22 +235,14 @@ function checkEmptyParents(state) {
 
 /**
  * 按输出顺序展平生效的**顶层**卡片，供顺序敏感的检查复用。
- * 口径必须与 serialize.js 的 topLevelCardsIn 一致。
+ * 口径由 catalog.js 的 isTopLevelIn() 统一，与 serialize.js 一致。
  */
 function orderedActiveCards(state) {
     const order = ['prepend', 'flexible', 'adblock', 'proxy', 'direct'];
     const all = state?.cards || [];
-    const byId = new Map(all.map(card => [card.id, card]));
 
     return order.flatMap(bucket => all
-        .filter(card => {
-            if (!card || card.bucket !== bucket) return false;
-            if (card.parentId !== null) {
-                const parent = byId.get(card.parentId);
-                if (parent && parent.bucket === bucket) return false;
-            }
-            return effectiveSources(all, card).length > 0;
-        })
+        .filter(card => isTopLevelIn(all, card, bucket) && effectiveSources(all, card).length > 0)
         .sort((a, b) => {
             const rank = card => (card.origin === 'user' ? 0 : 1);
             if (rank(a) !== rank(b)) return rank(a) - rank(b);

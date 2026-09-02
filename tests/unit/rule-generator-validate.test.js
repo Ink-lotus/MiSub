@@ -299,6 +299,33 @@ describe('rule-generator validate', () => {
         expect(messages(result)).not.toContain('遮蔽');
     });
 
+    it('标了 standalone 的小卡片自己成组，因此它的名字也要查重（§6.2）', () => {
+        const cards = [
+            { id: 'p1', name: '🤖 AI 服务', parentId: null, origin: 'user', bucket: 'flexible', order: 0, sources: [] },
+            card({ id: 'c1', name: '🧠 OpenAI', parentId: 'p1', bucket: 'flexible' }),
+            card({ id: 'c2', name: GROUP_NAMES.direct, parentId: 'p1', bucket: 'flexible', standalone: true })
+        ];
+
+        // 独立成组的那张撞上内置组名 → 拦下
+        const result = validateState(bare(cards));
+        expect(result.canGenerate).toBe(false);
+        expect(messages(result)).toContain('重名');
+
+        // 同一张卡片并回集合后不再是组名，放行
+        cards[2].standalone = false;
+        expect(validateState(bare(cards)).canGenerate).toBe(true);
+    });
+
+    it('小卡片全部独立成组后，父卡片按空集合提示', () => {
+        const result = validateState(bare([
+            { id: 'p1', name: '🤖 AI 服务', parentId: null, origin: 'user', bucket: 'flexible', order: 0, sources: [] },
+            card({ id: 'c1', name: '🧠 OpenAI', parentId: 'p1', bucket: 'flexible', standalone: true })
+        ]));
+
+        expect(result.canGenerate).toBe(true);
+        expect(messages(result)).toContain('没有任何规则卡片');
+    });
+
     it('策略组计数与序列化的实际输出一致，阈值分三档（§6.3）', () => {
         const minimal = bare([]);
         minimal.base = { autoSelect: false, manualSelect: false, fallback: false, regions: createRegionConfigs([]) };

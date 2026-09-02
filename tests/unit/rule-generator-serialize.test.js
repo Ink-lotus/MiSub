@@ -258,6 +258,55 @@ describe('rule-generator serialize', () => {
         expect(bodies[1]).toContain('builtin.list');
     });
 
+    it('灵活桶里的小卡片可以标 standalone 单独成组，其余小卡片照旧合并', () => {
+        const { ini } = serializeState(stateWithCards([
+            parent({ id: 'p1', name: '🤖 AI 服务', bucket: 'flexible' }),
+            child({ id: 'c1', name: '🧠 OpenAI', bucket: 'flexible', order: 0,
+                sources: [{ id: 's1', kind: 'remote', value: 'https://example.com/openai.list' }] }),
+            child({ id: 'c2', name: '💠 Gemini', bucket: 'flexible', order: 1, standalone: true,
+                sources: [{ id: 's2', kind: 'remote', value: 'https://example.com/gemini.list' }] }),
+            child({ id: 'c3', name: '📎 Claude', bucket: 'flexible', order: 2,
+                sources: [{ id: 's3', kind: 'remote', value: 'https://example.com/claude.list' }] })
+        ]));
+
+        const names = groupLines(ini).map(groupName);
+        expect(names).toContain('🤖 AI 服务');
+        expect(names).toContain('💠 Gemini');          // 自己一组
+        expect(names).not.toContain('🧠 OpenAI');      // 仍由父卡片代表
+        expect(names).not.toContain('📎 Claude');
+
+        // 规则不重复：Gemini 只挂在自己那组下，父组只剩另外两条
+        expect(ruleLines(ini).filter(line => rulePolicy(line) === '💠 Gemini')).toHaveLength(1);
+        expect(ruleLines(ini).filter(line => rulePolicy(line) === '🤖 AI 服务')).toHaveLength(2);
+        expect(ini).toContain('ruleset=💠 Gemini,https://example.com/gemini.list');
+    });
+
+    it('大卡片的小卡片全部 standalone 后它不再产出，也不留空组', () => {
+        const { ini } = serializeState(stateWithCards([
+            parent({ id: 'p1', name: '🤖 AI 服务', bucket: 'flexible' }),
+            child({ id: 'c1', name: '🧠 OpenAI', bucket: 'flexible', standalone: true,
+                sources: [{ id: 's1', kind: 'remote', value: 'https://example.com/openai.list' }] })
+        ]));
+
+        expect(groupLines(ini).map(groupName)).not.toContain('🤖 AI 服务');
+        expect(groupLines(ini).map(groupName)).toContain('🧠 OpenAI');
+        expect(ruleLines(ini).filter(line => rulePolicy(line) === '🧠 OpenAI')).toHaveLength(1);
+    });
+
+    it('承接桶里 standalone 不改变输出 —— 整桶仍汇进同一个组', () => {
+        const { ini } = serializeState(stateWithCards([
+            parent({ id: 'p1', name: '集合', bucket: 'proxy' }),
+            child({ id: 'c1', name: 'r1', bucket: 'proxy', order: 0,
+                sources: [{ id: 's1', kind: 'remote', value: 'https://example.com/a.list' }] }),
+            child({ id: 'c2', name: 'r2', bucket: 'proxy', order: 1, standalone: true,
+                sources: [{ id: 's2', kind: 'remote', value: 'https://example.com/b.list' }] })
+        ]));
+
+        expect(groupLines(ini).filter(line => groupName(line) === GROUP_NAMES.proxy)).toHaveLength(1);
+        expect(ruleLines(ini).filter(line => rulePolicy(line) === GROUP_NAMES.proxy)).toHaveLength(2);
+        expect(groupLines(ini).map(groupName)).not.toContain('r2');
+    });
+
     it('地区 pattern 统一包一层外括号，其他地区用反向前瞻', () => {
         const { ini } = serializeState(createDefaultState());
         const hk = groupLines(ini).find(line => groupName(line) === '🇭🇰 香港节点');

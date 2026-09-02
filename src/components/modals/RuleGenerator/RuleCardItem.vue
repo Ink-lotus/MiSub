@@ -25,6 +25,9 @@ const props = defineProps({
   /** 大卡片：它有自己的小卡片列表，卡片左侧给一个展开钮 */
   expandable: { type: Boolean, default: false },
   expanded: { type: Boolean, default: false },
+  /** 小卡片与父卡片同桶时，是否给「独立成组 / 并入集合」开关 */
+  detachable: { type: Boolean, default: false },
+  standalone: { type: Boolean, default: false },
   /** 是否展开来源明细 */
   showSources: { type: Boolean, default: false },
   /** 窄屏降级：显示「移到…」下拉取代拖拽 */
@@ -36,7 +39,7 @@ const props = defineProps({
   isEmpty: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['move', 'remove-source', 'toggle']);
+const emit = defineEmits(['move', 'remove-source', 'toggle', 'toggle-standalone']);
 
 const isParent = computed(() => props.card.parentId === null);
 const isAd = computed(() => /广告/.test(props.card.name));
@@ -91,6 +94,21 @@ function sourceLabel(source) {
         :title="t('settings.ruleGenAdCardHint')"
         class="shrink-0 rounded bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white"
       >{{ t('settings.ruleGenAdBadge') }}</span>
+
+      <!--
+        独立成组开关。只在灵活桶里、且这张小卡片与父卡片同桶时出现：
+        那种情况下它默认被父卡片代表（并进同一个策略组），点一下改为自己成组。
+      -->
+      <button
+        v-if="detachable"
+        type="button"
+        :title="standalone ? t('settings.ruleGenAttachHint') : t('settings.ruleGenDetachHint')"
+        @click.stop="emit('toggle-standalone')"
+        class="no-drag shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold leading-none transition"
+        :class="standalone
+          ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/50 dark:bg-indigo-900/30 dark:text-indigo-300'
+          : 'border-gray-200 text-gray-400 hover:text-gray-600 dark:border-gray-700 dark:hover:text-gray-200'"
+      >{{ standalone ? t('settings.ruleGenAttach') : t('settings.ruleGenDetach') }}</button>
 
       <span
         v-if="isPinned"

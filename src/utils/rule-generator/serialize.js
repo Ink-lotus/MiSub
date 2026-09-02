@@ -25,7 +25,8 @@ import {
     DEFAULT_TEST_URL,
     DEFAULT_INTERVAL,
     DEFAULT_TOLERANCE,
-    effectiveSources
+    effectiveSources,
+    isTopLevelIn
 } from './catalog.js';
 
 /**
@@ -45,7 +46,9 @@ function toBase64(text) {
 const BUILTIN_BY_ID = new Map(BUILTIN_CARDS.map(card => [card.id, card]));
 
 /** 参与「与目录比对」的字段，顺序固定，保证同一状态每次编码逐字节相同。 */
-const CARD_FIELDS = Object.freeze(['name', 'parentId', 'origin', 'bucket', 'order', 'sources', 'note']);
+const CARD_FIELDS = Object.freeze([
+    'name', 'parentId', 'origin', 'bucket', 'order', 'sources', 'note', 'standalone'
+]);
 
 /**
  * 卡片瘦身：内置卡片只写「与目录不同的字段」，一字不差的整张压成一个 id 字符串。
@@ -116,25 +119,18 @@ function compareCards(a, b) {
 /**
  * 取某个桶内的**顶层**卡片，已排序，且只保留实际有来源的。
  *
- * 顶层 = 大卡片，或被单独拖出父卡片的小卡片（其父卡片不在同一个桶里）。
- * 跟着父卡片留在同桶的小卡片不算顶层 —— 它们的来源已由父卡片的
- * effectiveSources 收进去，单独再算一次会重复输出。
+ * 顶层的判定收在 catalog.js 的 isTopLevelIn()：大卡片、被单独拖出父卡片的
+ * 小卡片、以及标了 `standalone` 的小卡片。跟着父卡片留在同桶的普通小卡片
+ * 不算顶层 —— 它们的来源已由父卡片的 effectiveSources 收进去，
+ * 单独再算一次会重复输出。
  */
 function topLevelCardsIn(cards, bucket) {
     const list = Array.isArray(cards) ? cards : [];
-    const byId = new Map(list.map(card => [card.id, card]));
 
     return list
         .map((card, index) => ({ card, index }))
-        .filter(({ card }) => {
-            if (!card || card.bucket !== bucket) return false;
-            if (card.parentId !== null) {
-                const parent = byId.get(card.parentId);
-                // 父卡片同桶 → 由父卡片统一产出，此处跳过
-                if (parent && parent.bucket === bucket) return false;
-            }
-            return effectiveSources(list, card).length > 0;
-        })
+        .filter(({ card }) => isTopLevelIn(list, card, bucket)
+            && effectiveSources(list, card).length > 0)
         .sort(compareCards)
         .map(({ card }) => card);
 }

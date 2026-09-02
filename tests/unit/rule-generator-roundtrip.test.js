@@ -246,6 +246,49 @@ describe('rule-generator roundtrip', () => {
         expect(result.partial).toBe(false);
         expect(result.state).toEqual(state);
     });
+
+    it('standalone 标记进注释头并原样还原', () => {
+        const state = recommendedState();
+        state.cards.find(card => card.id === 'ai-gemini').standalone = true;
+
+        const { ini } = serializeState(state);
+        expect(decodeHeader(ini).cards).toContainEqual(
+            expect.objectContaining({ id: 'ai-gemini', standalone: true }));
+
+        const result = parseIniToState(ini);
+        expect(result.source).toBe('header');
+        expect(result.state).toEqual(state);
+        expect(serializeState(result.state).ini).toBe(ini);
+    });
+
+    it('正文里集合组与其中一张小卡片各自成组时，反推后两个组都留住', () => {
+        // 这曾是个反推漏洞：`💠 Gemini` 组名等于小卡片名，反推后它与同桶的
+        // 父卡片挤在一起、被父卡片吞掉，那个组就没了
+        const ACL = 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash';
+        const body = [
+            '[custom]',
+            `ruleset=🤖 AI 服务,${ACL}/Ruleset/OpenAi.list`,
+            `ruleset=💠 Gemini,${ACL}/Ruleset/Gemini.list`,
+            `ruleset=${GROUP_NAMES.final},[]FINAL`,
+            '',
+            `custom_proxy_group=${GROUP_NAMES.nodeSelect}\`select\`[]DIRECT`,
+            ''
+        ].join('\n');
+
+        const { state } = parseIniToState(body);
+
+        const gemini = state.cards.find(card => card.id === 'ai-gemini');
+        expect(gemini.bucket).toBe('flexible');
+        expect(gemini.standalone).toBe(true);
+        expect(state.cards.find(card => card.id === 'cat-ai').bucket).toBe('flexible');
+
+        // 再序列化：两个组两条规则，各归各处
+        const regenerated = serializeState(state, { includeHeader: false }).ini;
+        expect(regenerated).toContain(`ruleset=🤖 AI 服务,${ACL}/Ruleset/OpenAi.list`);
+        expect(regenerated).toContain(`ruleset=💠 Gemini,${ACL}/Ruleset/Gemini.list`);
+        expect(regenerated).toContain('custom_proxy_group=💠 Gemini`select`');
+        expect(regenerated).toContain('custom_proxy_group=🤖 AI 服务`select`');
+    });
 });
 
 /**

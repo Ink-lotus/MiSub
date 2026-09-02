@@ -12,7 +12,8 @@ import { useI18n } from '@/i18n/index.js';
 import {
   OTHER_REGION_ID,
   createDefaultState,
-  effectiveSources
+  effectiveSources,
+  isTopLevelIn
 } from '@/utils/rule-generator/catalog.js';
 import { serializeState } from '@/utils/rule-generator/serialize.js';
 import { parseIniToState } from '@/utils/rule-generator/parse.js';
@@ -99,22 +100,14 @@ const moveOptions = computed(() => [
 
 /**
  * 按输出顺序展平生效卡片，供冲突检测复用（口径与 serialize.js 一致）。
- * 只取顶层卡片 —— 跟父卡片同桶的小卡片其来源已被父卡片收进 effectiveSources。
+ * 顶层判定收在 catalog.js 的 isTopLevelIn()。
  */
 const orderedActiveCards = computed(() => {
   const order = ['prepend', 'flexible', 'adblock', 'proxy', 'direct'];
   const all = state.value.cards;
-  const byId = new Map(all.map(card => [card.id, card]));
 
   return order.flatMap(bucket => all
-    .filter(card => {
-      if (card.bucket !== bucket) return false;
-      if (card.parentId !== null) {
-        const parent = byId.get(card.parentId);
-        if (parent && parent.bucket === bucket) return false;
-      }
-      return effectiveSources(all, card).length > 0;
-    })
+    .filter(card => isTopLevelIn(all, card, bucket) && effectiveSources(all, card).length > 0)
     .sort((a, b) => {
       const rank = card => (card.origin === 'user' ? 0 : 1);
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -155,6 +148,8 @@ function moveCard({ cardId, bucket }) {
 
   const previous = card.bucket;
   card.bucket = bucket;
+  // 回到待选栏就恢复默认归属：待选栏按父子分节展示，不体现独立成组
+  if (bucket === 'off') delete card.standalone;
 
   if (card.parentId === null) {
     state.value.cards.forEach(child => {
@@ -168,6 +163,9 @@ function moveCard({ cardId, bucket }) {
 /**
  * 拖放落地。vuedraggable 给的是该段的新顶层卡片数组，据此重写 bucket 与 order，
  * 让拖拽顺序即输出顺序。大卡片连带小卡片。
+ *
+ * 小卡片被拖进**段的顶层列表**时标 `standalone` —— 用户把它摆在集合旁边，
+ * 意思就是"它自己算一个"。灵活桶下这决定了它是否单独成一个策略组。
  */
 function handleDrop({ bucket, cards }) {
   (cards || []).forEach((dropped, index) => {
@@ -178,7 +176,13 @@ function handleDrop({ bucket, cards }) {
     card.bucket = bucket;
     card.order = index;
 
-    if (card.parentId === null && previous !== bucket) {
+    if (card.parentId !== null) {
+      if (bucket === 'off') delete card.standalone;
+      else card.standalone = true;
+      return;
+    }
+
+    if (previous !== bucket) {
       state.value.cards.forEach(child => {
         if (child.parentId === card.id && child.bucket === previous) child.bucket = bucket;
       });
@@ -187,7 +191,8 @@ function handleDrop({ bucket, cards }) {
 }
 
 /**
- * 拖进某张大卡片的小卡片列表：**改父**并跟到该大卡片所在的桶。
+ * 拖进某张大卡片的小卡片列表：**改父**并跟到该大卡片所在的桶，
+ * 同时清掉 `standalone` —— 它回到集合里了，由大卡片代表。
  *
  * 这是把小卡片在集合之间搬家的唯一入口，也让「空分组卡片」有意义
  * （submitRuleset 允许只建大卡片）。大卡片被拖进来时不改父 —— 嵌套只有两层，
@@ -216,7 +221,19 @@ function handleChildDrop({ parentId, cards }) {
     }
 
     card.parentId = parentId;
+    delete card.standalone;
   });
+}
+
+/**
+ * 「独立成组 / 并入集合」：小卡片与父卡片同桶时，决定它是自己算一个输出单元
+ * 还是并进父卡片那一组。灵活桶下这就是"要不要单独一个策略组"。
+ */
+function setStandalone({ cardId, standalone }) {
+  const card = state.value.cards.find(item => item.id === cardId);
+  if (!card || card.parentId === null) return;
+  if (standalone) card.standalone = true;
+  else delete card.standalone;
 }
 
 /**
@@ -364,6 +381,7 @@ function apply() {
             @move="moveCard"
             @drop="handleDrop"
             @child-drop="handleChildDrop"
+            @set-standalone="setStandalone"
             @remove-source="removeSource"
           />
         </div>

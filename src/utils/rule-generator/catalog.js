@@ -11,6 +11,10 @@
  * 只有落进「灵活桶」才各自生成独立策略组，落进其它桶只是把规则并入该桶的组。
  * 大卡片内小卡片数为 0 时不产出任何内容。
  *
+ * 小卡片与大卡片同桶时默认由大卡片代表（合并进它那一组）；标了
+ * `standalone: true` 的小卡片即便与父卡片同桶也自己算一个输出单元，
+ * 用于在灵活桶里把某一张小卡片单独拎出来成组，见 isTopLevelIn()。
+ *
  * **全部卡片的初始桶一律是 `off`（留在左栏待选栏）**，生成器不替用户决定分流。
  * 每张卡片各自的推荐落点仍保留在 RECOMMENDED_BUCKETS 里，供后续「一键设定
  * 规则分组」使用，见 applyRecommendedBuckets()。
@@ -507,19 +511,53 @@ export function childrenOf(cards, parentId) {
 }
 
 /**
- * 一张顶层卡片实际产出的全部来源 = 自身 sources + 其小卡片的 sources。
+ * 某张大卡片当前**代表**的小卡片：同桶、且没有被标成独立成组的那些。
+ * 这是「一张大卡片产出什么」与「界面上它下面挂着谁」的共同口径。
+ */
+export function representedChildren(cards, card) {
+    if (!card || card.parentId !== null) return [];
+    return childrenOf(cards, card.id)
+        .filter(child => child.bucket === card.bucket && !child.standalone)
+        .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+}
+
+/**
+ * 卡片在某个桶里是否算一个**顶层卡片**（= 一个输出单元）。
+ *
+ * 三种情况：
+ *   - 大卡片：恒是
+ *   - 小卡片，父卡片不在这个桶里：是（它被单独拖出来了）
+ *   - 小卡片，父卡片同桶：默认**不是**（由父卡片代表），除非 `standalone: true`
+ *
+ * `standalone` 是为灵活桶准备的：那里每张顶层卡片各自成一个策略组，用户需要
+ * 能把某一张小卡片从集合里拎出来单独成组（例如 `🤖 AI 服务` 整体一组、但
+ * `💠 Gemini` 要单独一组走别的出口），同时集合里其余小卡片照旧合并。
+ *
+ * serialize.js / validate.js / RuleGeneratorModal / BucketPanel 一律走这个函数 ——
+ * 这个判定曾经在四处各写一遍，改一处漏三处。
+ */
+export function isTopLevelIn(cards, card, bucket) {
+    if (!card || card.bucket !== bucket) return false;
+    if (card.parentId === null) return true;
+    if (card.standalone) return true;
+
+    const parent = (cards || []).find(item => item && item.id === card.parentId);
+    return !(parent && parent.bucket === bucket);
+}
+
+/**
+ * 一张顶层卡片实际产出的全部来源 = 自身 sources + 它代表的小卡片的 sources。
  *
  * 大卡片自身 sources 恒为空，因此它的产出完全取决于小卡片；小卡片被单独拖到
- * 别处后不再计入，大卡片内小卡片归零时该卡片不产出任何内容。
+ * 别处、或标成 `standalone` 之后不再计入（否则同一条规则会输出两次），
+ * 大卡片内小卡片归零时该卡片不产出任何内容。
  */
 export function effectiveSources(cards, card) {
     if (!card) return [];
     const own = Array.isArray(card.sources) ? card.sources : [];
     if (card.parentId !== null) return own;
 
-    const childSources = childrenOf(cards, card.id)
-        .filter(child => child.bucket === card.bucket)
-        .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+    const childSources = representedChildren(cards, card)
         .flatMap(child => (Array.isArray(child.sources) ? child.sources : []));
 
     return [...own, ...childSources];

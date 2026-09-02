@@ -10,7 +10,12 @@
 import { computed, ref } from 'vue';
 import draggable from 'vuedraggable';
 import { useI18n } from '@/i18n/index.js';
-import { GROUP_NAMES, effectiveSources } from '@/utils/rule-generator/catalog.js';
+import {
+  GROUP_NAMES,
+  effectiveSources,
+  isTopLevelIn,
+  representedChildren
+} from '@/utils/rule-generator/catalog.js';
 import RuleCardItem from './RuleCardItem.vue';
 
 const { t } = useI18n();
@@ -25,7 +30,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  'toggle-collapse', 'toggle-modifier', 'move', 'drop', 'child-drop', 'remove-source'
+  'toggle-collapse', 'toggle-modifier', 'move', 'drop', 'child-drop',
+  'set-standalone', 'remove-source'
 ]);
 
 /**
@@ -82,19 +88,10 @@ const SEGMENTS = [
     droppable: false, locked: true }
 ];
 
-/** 顶层卡片，口径与 serialize.js 的 topLevelCardsIn 一致。 */
+/** 顶层卡片，口径由 catalog.js 的 isTopLevelIn 统一。 */
 function topLevelIn(bucket) {
-  const byId = new Map(props.cards.map(card => [card.id, card]));
-
   return props.cards
-    .filter(card => {
-      if (card.bucket !== bucket) return false;
-      if (card.parentId !== null) {
-        const parent = byId.get(card.parentId);
-        if (parent && parent.bucket === bucket) return false;
-      }
-      return true;
-    })
+    .filter(card => isTopLevelIn(props.cards, card, bucket))
     .sort((a, b) => {
       const rank = card => (card.origin === 'user' ? 0 : 1);
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -108,22 +105,32 @@ const counts = computed(() => {
   return map;
 });
 
-/** 大卡片当前同桶的小卡片，按 order 排 —— 拖拽重写 order，不排就看不出变化。 */
+/**
+ * 大卡片当前代表的小卡片：同桶、且没有独立成组的那些，按 order 排
+ * —— 拖拽重写 order，不排就看不出变化。
+ */
 function childrenSameBucket(card) {
-  return props.cards
-    .filter(item => item.parentId === card.id && item.bucket === card.bucket)
-    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  return representedChildren(props.cards, card);
 }
 
 function countFor(card) {
   return effectiveSources(props.cards, card).length;
 }
 
+/**
+ * 「独立成组 / 并入集合」这个开关只在**灵活桶**里给：那里每张顶层卡片各自
+ * 成一个策略组，独立与否直接改变输出。其它桶整桶汇进同一个组，切了也看不出
+ * 区别，给了只会让人误以为有用。父卡片不在同桶时它本来就是顶层，不给开关。
+ */
+function canDetach(card, bucket) {
+  if (bucket !== 'flexible' || card.parentId === null) return false;
+  const parent = props.cards.find(item => item.id === card.parentId);
+  return Boolean(parent) && parent.bucket === bucket;
+}
+
 /** 大卡片内小卡片归零 → 不产出任何内容。 */
 function isEmptyParent(card) {
-  return card.parentId === null
-    && (card.sources || []).length === 0
-    && childrenSameBucket(card).length === 0;
+  return card.parentId === null && effectiveSources(props.cards, card).length === 0;
 }
 </script>
 
@@ -194,12 +201,15 @@ function isEmptyParent(card) {
                 :children="childrenSameBucket(element)"
                 :expandable="element.parentId === null"
                 :expanded="isExpanded(element.id)"
+                :detachable="canDetach(element, segment.bucket)"
+                :standalone="Boolean(element.standalone)"
                 :show-sources="Boolean(segment.showSources)"
                 :show-move-menu="!dragEnabled"
                 :move-options="moveOptions"
                 :conflicting="conflictingIds.has(element.id)"
                 :is-empty="isEmptyParent(element)"
                 @toggle="toggleCard(element.id)"
+                @toggle-standalone="emit('set-standalone', { cardId: element.id, standalone: !element.standalone })"
                 @move="value => emit('move', { cardId: element.id, bucket: value })"
                 @remove-source="sourceId => emit('remove-source', { cardId: element.id, sourceId })"
               />
@@ -221,9 +231,12 @@ function isEmptyParent(card) {
                   <RuleCardItem
                     :card="child"
                     :effective-count="countFor(child)"
+                    :detachable="canDetach(child, segment.bucket)"
+                    :standalone="Boolean(child.standalone)"
                     :show-move-menu="!dragEnabled"
                     :move-options="moveOptions"
                     :conflicting="conflictingIds.has(child.id)"
+                    @toggle-standalone="emit('set-standalone', { cardId: child.id, standalone: !child.standalone })"
                     @move="value => emit('move', { cardId: child.id, bucket: value })"
                   />
                 </template>

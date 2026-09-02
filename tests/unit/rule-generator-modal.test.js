@@ -297,6 +297,58 @@ describe('RuleGeneratorModal', () => {
     await wrapper.vm.$nextTick();
     expect(wrapper.vm.state.cards).toHaveLength(before + 1);
   });
+  it('小卡片可在灵活桶里独立成组，并入集合可还原', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-ai', bucket: 'flexible' });
+    await wrapper.vm.$nextTick();
+
+    const groupsOf = () => serializeState(wrapper.vm.state).ini.split('\n')
+      .filter(line => line.startsWith('custom_proxy_group='))
+      .map(line => line.replace(/^custom_proxy_group=/, '').split('`')[0]);
+
+    // 默认由 🤖 AI 服务 代表，Gemini 不单独成组
+    expect(groupsOf()).toContain('🤖 AI 服务');
+    expect(groupsOf()).not.toContain('💠 Gemini');
+
+    wrapper.vm.setStandalone({ cardId: 'ai-gemini', standalone: true });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards.find(card => card.id === 'ai-gemini').standalone).toBe(true);
+    expect(groupsOf()).toContain('💠 Gemini');
+    expect(groupsOf()).toContain('🤖 AI 服务');       // 其余小卡片照旧合并
+
+    wrapper.vm.setStandalone({ cardId: 'ai-gemini', standalone: false });
+    await wrapper.vm.$nextTick();
+
+    // 并回集合后连字段都不留，注释头因此不多记一条
+    expect('standalone' in wrapper.vm.state.cards.find(card => card.id === 'ai-gemini')).toBe(false);
+    expect(groupsOf()).not.toContain('💠 Gemini');
+  });
+
+  it('小卡片被拖进段的顶层列表即独立成组，拖回集合或退回待选栏则取消', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-ai', bucket: 'flexible' });
+    await wrapper.vm.$nextTick();
+    const gemini = wrapper.vm.state.cards.find(card => card.id === 'ai-gemini');
+
+    // 摆到集合旁边 = 它自己算一个
+    wrapper.vm.handleDrop({ bucket: 'flexible', cards: [gemini] });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.state.cards.find(card => card.id === 'ai-gemini').standalone).toBe(true);
+
+    // 拖回集合的小卡片列表 → 并回去
+    wrapper.vm.handleChildDrop({ parentId: 'cat-ai', cards: [gemini] });
+    await wrapper.vm.$nextTick();
+    expect('standalone' in wrapper.vm.state.cards.find(card => card.id === 'ai-gemini')).toBe(false);
+
+    // 退回待选栏也清掉：待选栏按父子分节展示，不体现独立成组
+    wrapper.vm.setStandalone({ cardId: 'ai-gemini', standalone: true });
+    wrapper.vm.moveCard({ cardId: 'ai-gemini', bucket: 'off' });
+    await wrapper.vm.$nextTick();
+    expect('standalone' in wrapper.vm.state.cards.find(card => card.id === 'ai-gemini')).toBe(false);
+  });
 });
 
 describe('真实 vuedraggable 下的渲染', () => {
@@ -399,6 +451,37 @@ describe('BucketPanel', () => {
     expect(wrapper.emitted('child-drop')).toEqual([[{ parentId: 'p1', cards: [kid] }]]);
     expect(wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id))
       .toEqual(['p1', 'c1']);
+  });
+
+  it('「独立成组」开关只给灵活桶里与父卡片同桶的小卡片', async () => {
+    const wrapper = mountPanel();
+    await toggleOf(wrapper).trigger('click');
+
+    const childCard = wrapper.findAllComponents(RuleCardItem)
+      .find(item => item.props('card').id === 'c1');
+    expect(childCard.props('detachable')).toBe(true);
+
+    // 点它 → 冒出 set-standalone，取反当前值
+    await childCard.find('button').trigger('click');
+    expect(wrapper.emitted('set-standalone')).toEqual([[{ cardId: 'c1', standalone: true }]]);
+
+    // 承接桶整桶汇进同一个组，独立与否看不出区别，因此不给开关
+    const proxied = mount(BucketPanel, {
+      props: {
+        cards: [{ ...parent, bucket: 'proxy' }, { ...kid, bucket: 'proxy' }],
+        headModifiers: { localAreaNetwork: true },
+        collapsed: { prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
+        dragEnabled: true,
+        moveOptions: []
+      },
+      global: {
+        plugins: [createI18n({ initialLocale: 'zh-CN' })],
+        stubs: { draggable: draggableStub }
+      }
+    });
+    await proxied.findAll('button').find(button => ['▸', '▾'].includes(button.text())).trigger('click');
+    expect(proxied.findAllComponents(RuleCardItem)
+      .find(item => item.props('card').id === 'c1').props('detachable')).toBe(false);
   });
 });
 
