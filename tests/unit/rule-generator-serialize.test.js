@@ -189,9 +189,11 @@ describe('rule-generator serialize', () => {
 
         const { ini } = serializeState(state);
         const byName = new Map(groupLines(ini).map(line => [groupName(line), groupMembers(line)]));
+        // 成员顺序按出口优先级：带健康检查的在前，☑️ 手动切换 垫底，见
+        // serialize.js 的 outboundGroupOrder。
         const standard = [
-            GROUP_NAMES.nodeSelect, GROUP_NAMES.manualSelect,
-            GROUP_NAMES.autoSelect, GROUP_NAMES.fallback, 'DIRECT'
+            GROUP_NAMES.nodeSelect, GROUP_NAMES.autoSelect,
+            GROUP_NAMES.fallback, GROUP_NAMES.manualSelect, 'DIRECT'
         ];
 
         expect(byName.get('灵活卡')).toEqual(standard);
@@ -201,8 +203,8 @@ describe('rule-generator serialize', () => {
         // 🎯 全球直连唯一的排列例外：DIRECT 置首，默认直连
         expect(byName.get(GROUP_NAMES.direct)[0]).toBe('DIRECT');
         expect(byName.get(GROUP_NAMES.direct)).toEqual([
-            'DIRECT', GROUP_NAMES.nodeSelect, GROUP_NAMES.manualSelect,
-            GROUP_NAMES.autoSelect, GROUP_NAMES.fallback
+            'DIRECT', GROUP_NAMES.nodeSelect, GROUP_NAMES.autoSelect,
+            GROUP_NAMES.fallback, GROUP_NAMES.manualSelect
         ]);
 
         // 地区组不进任何承接组
@@ -335,6 +337,41 @@ describe('rule-generator serialize', () => {
         const lines = groupLines(serializeState(state).ini);
         expect(lines[0]).toBe(`custom_proxy_group=${GROUP_NAMES.nodeSelect}\`select\`.*\`[]DIRECT`);
         expect(groupMembers(lines.at(-1))).toEqual([GROUP_NAMES.nodeSelect, 'DIRECT']);
+    });
+
+    // store-selected 按组名恢复选择，新模板的组名全是新的，客户端首次加载时
+    // 每个 select 组一律落到首个成员上。因此 🚀 节点选择 的首位必须是带健康检查
+    // 的组，否则默认出口被钉死在节点列表里的第一个节点，那个节点一挂就全挂。
+    // 六个内置模板（builtin-template-registry.js）一律 ♻️ 自动选择 在前、
+    // ☑️ 手动切换 垫底，生成器要跟上这个约定。
+    it('🚀 节点选择 首位是带健康检查的组，☑️ 手动切换 垫在组尾', () => {
+        const members = groupMembers(groupLines(serializeState(createDefaultState()).ini)[0]);
+
+        expect(members[0]).toBe(GROUP_NAMES.autoSelect);
+        expect(members.indexOf(GROUP_NAMES.manualSelect))
+            .toBeGreaterThan(members.indexOf(GROUP_NAMES.autoSelect));
+    });
+
+    it('未勾选 ♻️ 自动选择 时由 🔯 故障转移 顶上首位', () => {
+        const state = createDefaultState();
+        state.base.autoSelect = false;
+        state.base.fallback = true;
+
+        const members = groupMembers(groupLines(serializeState(state).ini)[0]);
+
+        expect(members[0]).toBe(GROUP_NAMES.fallback);
+        expect(members.indexOf(GROUP_NAMES.manualSelect))
+            .toBeGreaterThan(members.indexOf(GROUP_NAMES.fallback));
+    });
+
+    it('三个可选基础组的定义顺序仍是 手动切换 → 自动选择 → 故障转移', () => {
+        const state = createDefaultState();
+        state.base.fallback = true;
+
+        const names = groupLines(serializeState(state).ini).map(groupName);
+
+        expect(names.indexOf(GROUP_NAMES.manualSelect)).toBeLessThan(names.indexOf(GROUP_NAMES.autoSelect));
+        expect(names.indexOf(GROUP_NAMES.autoSelect)).toBeLessThan(names.indexOf(GROUP_NAMES.fallback));
     });
 
     it('内联来源的 no-resolve 作为第三段透传', () => {

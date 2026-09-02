@@ -186,13 +186,28 @@ function testOptions(source) {
     };
 }
 
-/** 已勾选的可选基础组，按固定顺序。 */
-function enabledOptionalBaseGroups(state) {
+/**
+ * 已勾选的可选基础组，按**出口优先级**排：带健康检查的在前，`☑️ 手动切换` 垫底。
+ *
+ * 这个顺序只用于**成员列表**，与组的定义顺序（buildGroupLines 的 2-4 步，
+ * 直接读 base.manualSelect / autoSelect / fallback）无关 —— 后者决定客户端
+ * 列表里的排列，见文件头。
+ *
+ * 为什么 `☑️ 手动切换` 不能在首位：select 组默认选中首个成员，而
+ * `store-selected` 是**按组名**恢复选择的 —— 换模板时组名全是新的，客户端
+ * 首次加载必然落到首个成员上。`☑️ 手动切换` 是对全部节点的裸 select，不带
+ * 健康检查，让它当首位就等于把默认出口钉死在节点列表里的第一个节点：那个
+ * 节点一挂，走 `[]FINAL` 的流量全挂，连订阅自身都拉不回来（客户端更新订阅
+ * 的请求同样过隧道）。放 `♻️ 自动选择` / `🔯 故障转移` 则会自动绕开死节点。
+ *
+ * 六个内置模板一律是这个顺序，见 builtin-template-registry.js:15。
+ */
+function outboundGroupOrder(state) {
     const base = state?.base || {};
     const groups = [];
-    if (base.manualSelect) groups.push(GROUP_NAMES.manualSelect);
     if (base.autoSelect) groups.push(GROUP_NAMES.autoSelect);
     if (base.fallback) groups.push(GROUP_NAMES.fallback);
+    if (base.manualSelect) groups.push(GROUP_NAMES.manualSelect);
     return groups;
 }
 
@@ -204,7 +219,7 @@ function enabledOptionalBaseGroups(state) {
  * 逐桶枚举会让每个组的选项列表膨胀到十几项。
  */
 function standardBucketMembers(state) {
-    return [GROUP_NAMES.nodeSelect, ...enabledOptionalBaseGroups(state), 'DIRECT'];
+    return [GROUP_NAMES.nodeSelect, ...outboundGroupOrder(state), 'DIRECT'];
 }
 
 /** 组装规则段，六段固定顺序。`ruleset=` 行序即最终匹配优先级。 */
@@ -234,7 +249,7 @@ function buildRuleLines(state) {
 function buildGroupLines(state) {
     const lines = [];
     const cards = state?.cards || [];
-    const optionalBase = enabledOptionalBaseGroups(state);
+    const optionalBase = outboundGroupOrder(state);
     const regions = enabledRegions(state);
     const emitOther = shouldEmitOtherRegion(state);
 
