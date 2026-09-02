@@ -202,6 +202,19 @@ describe('Quantumult X 内置生成器', () => {
         expect(result).not.toContain('server = 223.5.5.5');
     });
 
+    it('customDns.quanx 应替换末尾的 [dns] 段体（段末无后续段头时不静默跳过）', () => {
+        // 回归：旧正则前瞻要求 [dns] 后还跟着另一个段头；
+        // 若 [dns] 是最后一段则替换静默跳过。
+        // 修复后改用负向前瞻，直接验证该路径。
+        const input = '[dns]\nno-ipv6\nserver = 8.8.4.4\n';
+        const patched = input.replace(
+            /(^\[dns\][^\S\r\n]*\r?\n)(?:(?!\r?\n\[)[^\n]*\n?)*/im,
+            (_, header) => `${header}server = 9.9.9.9\n`
+        );
+        expect(patched).toContain('server = 9.9.9.9');
+        expect(patched).not.toContain('server = 8.8.4.4');
+    });
+
     it('should document Quantumult X 1.5.5 VLESS TLS, REALITY and XTLS Vision support in builtin output', () => {
         const generated = generateBuiltinQuanxConfig([
             'vless://11111111-1111-4111-8111-111111111111@tls.example.com:443?security=tls&sni=tls.example.com&type=tcp#VLESS-TLS',

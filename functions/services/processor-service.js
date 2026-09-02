@@ -138,7 +138,7 @@ function applyCustomDnsToBuiltinPreset(content, targetFormat, customDns) {
             const eol = content.includes('\r\n') ? '\r\n' : '\n';
             const normalizedDnsText = dnsText.replace(/\r?\n/g, eol);
             return content.replace(
-                /(^\[dns\][^\S\r\n]*\r?\n)[\s\S]*?(?=\r?\n\[[^\]\r\n]+\])/im,
+                /(^\[dns\][^\S\r\n]*\r?\n)(?:(?!\r?\n\[)[^\n]*\n?)*/im,
                 (_, header) => `${header}${normalizedDnsText}${eol}`
             );
         }
