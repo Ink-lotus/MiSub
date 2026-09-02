@@ -4,8 +4,9 @@ import { mount } from '@vue/test-utils';
 import RuleGeneratorModal from '../../src/components/modals/RuleGeneratorModal.vue';
 import RuleCardItem from '../../src/components/modals/RuleGenerator/RuleCardItem.vue';
 import BucketPanel from '../../src/components/modals/RuleGenerator/BucketPanel.vue';
+import CardPalette from '../../src/components/modals/RuleGenerator/CardPalette.vue';
 import { createI18n } from '../../src/i18n/index.js';
-import { createDefaultState, GROUP_NAMES } from '../../src/utils/rule-generator/catalog.js';
+import { createDefaultState, applyRecommendedBuckets, GROUP_NAMES } from '../../src/utils/rule-generator/catalog.js';
 import { serializeState } from '../../src/utils/rule-generator/serialize.js';
 
 /** Modal 的 focus-trap 在 happy-dom 下噪音大，替换成直通壳。 */
@@ -61,7 +62,10 @@ describe('RuleGeneratorModal', () => {
   });
 
   it('右栏段落的可见顺序与生成的 ruleset= 行序一致', () => {
-    const wrapper = mountModal();
+    // 默认状态卡片全在待选栏，右栏各段是空的 —— 用铺开后的模板内容打开
+    const configured = createDefaultState();
+    configured.cards = applyRecommendedBuckets(configured.cards);
+    const wrapper = mountModal({ content: serializeState(configured).ini });
 
     const headings = wrapper.findComponent(BucketPanel)
       .findAll('section > button')
@@ -206,6 +210,8 @@ describe('RuleGeneratorModal', () => {
   it('自填来源撞上内置卡片时冲突条出现，保留我的可消解', async () => {
     const wrapper = mountModal();
 
+    // 先让内置的「📲 社交通讯」集合生效，它带着电报卡片一起进桶
+    wrapper.vm.moveCard({ cardId: 'cat-social', bucket: 'proxy' });
     wrapper.vm.submitRuleset({
       name: '我的电报',
       rows: [{ kind: 'remote', value: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/Telegram.list' }]
@@ -227,7 +233,52 @@ describe('RuleGeneratorModal', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.vm.conflicts).toHaveLength(0);
+    // 内置电报卡片被移空 → 整卡消失，且没有留下孤立的大卡片来源
     expect(wrapper.vm.state.cards.find(card => card.id === 'telegram')).toBeUndefined();
+  });
+});
+
+describe('CardPalette', () => {
+  function mountPalette() {
+    return mount(CardPalette, {
+      props: { cards: createDefaultState().cards, dragEnabled: true, moveOptions: [] },
+      global: {
+        plugins: [createI18n({ initialLocale: 'zh-CN' })],
+        stubs: { draggable: draggableStub }
+      }
+    });
+  }
+
+  it('默认全部卡片在待选栏，每节收起后只见大卡片', () => {
+    const text = mountPalette().text();
+
+    // 十张大卡片全在
+    ['✅ 直连例外', '🛑 广告过滤', '🤖 AI 服务', '🎬 流媒体', '📲 社交通讯',
+      '💻 科技服务', '👨‍💻 开发与学术', '🎮 游戏平台', '🏠 国内直连', '🌏 广覆盖代理清单']
+      .forEach(name => expect(text).toContain(name));
+
+    // 小卡片默认收起 —— 78 张卡片全展开会把左栏撑爆
+    expect(text).not.toContain('🧠 OpenAI');
+    expect(text).not.toContain('📎 Claude');
+  });
+
+  it('点小三角展开该节的小卡片', async () => {
+    const wrapper = mountPalette();
+    const section = wrapper.findAll('button').find(button => ['▸', '▾'].includes(button.text()));
+
+    await section.trigger('click');
+    expect(wrapper.text()).toContain('🇨🇳 谷歌中国');
+  });
+
+  it('搜索时自动展开命中的节', async () => {
+    const wrapper = mountPalette();
+
+    await wrapper.find('input[type="search"]').setValue('Gemini');
+    const text = wrapper.text();
+
+    expect(text).toContain('💠 Gemini');
+    expect(text).toContain('🤖 AI 服务');       // 命中项所在的集合仍可见
+    expect(text).not.toContain('📹 油管视频');   // 未命中的节不出现
   });
 });
 

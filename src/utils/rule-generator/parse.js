@@ -3,9 +3,10 @@
  *
  * 纯函数，无副作用、无 IO。
  *
- * 两条路径：
+ * 三条路径：
  *   1. 读 `; misub-visual-state-v1:` 注释头 —— 无损
- *   2. 头缺失时从 `ruleset=` / `custom_proxy_group=` 尽力反推 —— 有损，
+ *   2. 正文就是「一张卡片都没放」的初始骨架 —— 直接给默认状态，不报警告
+ *   3. 都不是时从 `ruleset=` / `custom_proxy_group=` 尽力反推 —— 有损，
  *      返回 `partial: true` 供 UI 提示
  *
  * 另外检测「注释头与正文漂移」：用户在高级模式手改过正文时，**以正文为准**，
@@ -15,11 +16,11 @@
 import {
     GROUP_NAMES,
     STATE_VERSION,
+    SUPPORTED_STATE_VERSIONS,
     STATE_HEADER_PREFIX,
     OTHER_REGION_ID,
     REGION_PRESETS,
     BUILTIN_CARDS,
-    BUCKET_POLICY,
     LOCAL_AREA_NETWORK_SOURCE,
     DEFAULT_TEST_URL,
     DEFAULT_INTERVAL,
@@ -157,6 +158,39 @@ BUILTIN_CARDS.forEach(card => {
     });
 });
 
+/**
+ * 卡片展开：serialize.js 的 compactCards 的逆运算，两边必须对称。
+ *
+ *   'cat-ai'            → 目录原样
+ *   { id, bucket, … }   → 目录打底，列出的字段覆盖
+ *   完整卡片对象         → 用户卡片（或 v1 的全量写法），原样收下
+ *
+ * 目录里已不存在的 id：带 name 的原样保留（可能是历史用户卡片），
+ * 只剩 id 的丢弃 —— 它已经拿不回任何来源，留下只会是一张空卡片。
+ */
+function expandCards(entries) {
+    const byId = new Map(cloneBuiltinCards().map(card => [card.id, card]));
+
+    return (Array.isArray(entries) ? entries : []).map(entry => {
+        if (typeof entry === 'string') return byId.get(entry) || null;
+        if (!entry || typeof entry !== 'object') return null;
+
+        const builtin = byId.get(entry.id);
+        if (!builtin) return entry.name ? entry : null;
+
+        const merged = { ...builtin, ...entry };
+        if (Array.isArray(entry.sources)) {
+            merged.sources = entry.sources.map(source => ({ ...source }));
+        }
+        return merged;
+    }).filter(Boolean);
+}
+
+/** 注释头 → 可用状态。版本号一律归一到当前值，避免再序列化时新旧格式混写。 */
+function expandState(header) {
+    return { ...header, version: STATE_VERSION, cards: expandCards(header.cards) };
+}
+
 /** 反推地区组：按 pattern 或组名匹配预置；都对不上则作为自定义地区收下。 */
 function recoverRegions(groups) {
     const byPattern = new Map();
@@ -233,7 +267,15 @@ function bucketForPolicy(policy) {
 /**
  * 从 INI 正文尽力反推 state。有损，调用方须置 `partial: true`。
  *
- * 关键修复：正文里没提到的内置卡片**保留目录里的原始 sources**，只是留在
+ * 两条关键约束，都是为了「反推出来的卡片集合里不出现两张同名卡片」——
+ * 同名卡片会让用户在界面上看到两份同一个服务（旧默认模板的 `📲 电报消息`
+ * 就撞出过这个），进灵活桶后还会被 dedupeGroupsByName 静默合并：
+ *
+ *   1. 组名恰好等于某张内置卡片名时，**接管那张卡片**，不另建同名用户卡片
+ *   2. 命中的小卡片其组名就是自己的名字时，**不把父卡片拉进来改名**，
+ *      否则父子同名
+ *
+ * 另一条既有约束：正文里没提到的内置卡片**保留目录里的原始 sources**，只是留在
  * `bucket: 'off'`。早先版本会把它们的 sources 清空，导致这些卡片在左栏看着正常、
  * 一拖进桶就报「没有任何来源」。
  */
@@ -253,10 +295,43 @@ function recoverFromBody(iniText) {
     // 全部内置卡片先归到待选栏，sources 保持目录原样
     const cards = cloneBuiltinCards().map(card => ({ ...card, bucket: 'off' }));
     const byId = new Map(cards.map(card => [card.id, card]));
+    const byName = new Map();
+    cards.forEach(card => { if (!byName.has(card.name)) byName.set(card.name, card); });
     const touchedParents = new Set();
+    const absorbed = new Set();
 
     const userCards = new Map();
     let sequence = 0;
+
+    /**
+     * 把正文里的一条来源记到某张内置小卡片上。
+     *
+     * 第一次记到某张卡片时先清空它目录里的来源 —— 以正文为准：正文只提了
+     * 多来源卡片里的一条时，另几条不该被凭空补回去，否则再序列化会多出
+     * 用户从未写过的规则行。完全没被提到的卡片不走这里，来源原样保留。
+     */
+    function absorb(card, source) {
+        if (!absorbed.has(card.id)) {
+            absorbed.add(card.id);
+            card.sources = [];
+        }
+        card.sources.push({ id: `${card.id}-s${card.sources.length + 1}`, ...source });
+    }
+
+    /** 让某张小卡片的父卡片跟进同一个桶，保持嵌套关系。 */
+    function followParent(card, bucket, policy) {
+        if (!card.parentId || !byId.has(card.parentId)) return;
+        // 组名就是这张小卡片自己的名字 → 让它自己当顶层卡片。
+        // 拉父卡片进来会把父卡片改成同一个名字，父子同名
+        if (policy === card.name) return;
+
+        const parent = byId.get(card.parentId);
+        if (touchedParents.has(parent.id)) return;
+        parent.bucket = bucket;
+        touchedParents.add(parent.id);
+        // 灵活桶下组名即卡片名，用正文里的组名覆盖，保证再序列化一致
+        if (bucket === 'flexible') parent.name = policy;
+    }
 
     lines.filter(line => /^ruleset=/i.test(line)).forEach(line => {
         const parsed = parseRulesetLine(line);
@@ -278,17 +353,31 @@ function recoverFromBody(iniText) {
             const card = byId.get(builtinId);
             // 灵活桶：组名认不出时按组名建组，卡片跟随
             card.bucket = known || 'flexible';
+            absorb(card, source);
+            followParent(card, card.bucket, policy);
+            return;
+        }
 
-            // 小卡片被点亮时，其父卡片也跟到同一个桶，保持嵌套关系
-            if (card.parentId && byId.has(card.parentId)) {
-                const parent = byId.get(card.parentId);
-                if (!touchedParents.has(parent.id)) {
-                    parent.bucket = card.bucket;
-                    touchedParents.add(parent.id);
-                    // 灵活桶下组名即卡片名，用正文里的组名覆盖，保证再序列化一致
-                    if (!known) parent.name = policy;
-                }
+        // 组名撞上某张内置卡片名 → 接管那张卡片，不另建同名用户卡片
+        const twin = known ? null : byName.get(policy);
+        if (twin && twin.parentId !== null) {
+            twin.bucket = 'flexible';
+            absorb(twin, source);
+            return;
+        }
+        if (twin) {
+            // 大卡片自身 sources 恒空，来源挂到它下面的一张用户小卡片上
+            twin.bucket = 'flexible';
+            const holderKey = `holder:${twin.id}`;
+            if (!userCards.has(holderKey)) {
+                sequence += 1;
+                userCards.set(holderKey, {
+                    id: `user-${sequence}`, name: '🧩 自定义来源', parentId: twin.id,
+                    origin: 'user', bucket: 'flexible', order: sequence, sources: []
+                });
             }
+            sequence += 1;
+            userCards.get(holderKey).sources.push({ id: `r${sequence}`, ...source });
             return;
         }
 
@@ -326,10 +415,27 @@ function bodyFingerprint(iniText) {
 /** state 是否形状完整，用于挡住损坏或跨版本的注释头。 */
 function looksLikeState(candidate) {
     return Boolean(candidate)
-        && candidate.version === STATE_VERSION
+        && SUPPORTED_STATE_VERSIONS.includes(candidate.version)
         && candidate.base && typeof candidate.base === 'object'
         && Array.isArray(candidate.base.regions)
         && Array.isArray(candidate.cards);
+}
+
+/**
+ * 正文是否就是「一张卡片都没放」的初始骨架。
+ *
+ * 新建模板的初始正文（RuleTemplateManager.vue）正是默认状态的序列化结果、
+ * 且刻意不带注释头 —— 那一行 base64 会让高级模式的文本框第一行不可读。
+ * 这里认出它，直接给默认状态而不是走反推：反推出来的东西一模一样，
+ * 却会挂一条「结果可能有损」的警告条，对刚建模板的用户是纯噪音。
+ */
+let defaultBodyFingerprint = null;
+function isUntouchedSkeleton(text) {
+    if (defaultBodyFingerprint === null) {
+        defaultBodyFingerprint = bodyFingerprint(
+            serializeState(createDefaultState(), { includeHeader: false }).ini);
+    }
+    return bodyFingerprint(text) === defaultBodyFingerprint;
 }
 
 /**
@@ -352,15 +458,23 @@ export function parseIniToState(iniText) {
     }
 
     const header = readStateHeader(text);
+    const restored = looksLikeState(header) ? expandState(header) : null;
 
-    if (looksLikeState(header)) {
+    if (restored) {
         // 注释头与正文不同步时以正文为准，不静默覆盖用户的手改
-        const expected = serializeState(header, { includeHeader: false }).ini;
+        const expected = serializeState(restored, { includeHeader: false }).ini;
         if (bodyFingerprint(expected) !== bodyFingerprint(text)) {
             warnings.push('模板正文与可视化状态不一致，可能在高级模式下手动改过。已按正文重新反推，手改的内容可能有损。');
             return { state: recoverFromBody(text), partial: true, drifted: true, source: 'body', warnings };
         }
-        return { state: header, partial: false, drifted: false, source: 'header', warnings };
+        return { state: restored, partial: false, drifted: false, source: 'header', warnings };
+    }
+
+    if (isUntouchedSkeleton(text)) {
+        return {
+            state: createDefaultState(), partial: false, drifted: false,
+            source: 'default', warnings: []
+        };
     }
 
     if (header) {

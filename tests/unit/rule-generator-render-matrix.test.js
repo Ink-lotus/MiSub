@@ -3,6 +3,8 @@ import yaml from 'js-yaml';
 import {
     createDefaultState,
     createRegionConfigs,
+    applyRecommendedBuckets,
+    effectiveSources,
     GROUP_NAMES
 } from '../../src/utils/rule-generator/catalog.js';
 import { serializeState } from '../../src/utils/rule-generator/serialize.js';
@@ -55,10 +57,16 @@ const RENDERERS = [
     { name: 'egern', render: renderEgernFromIniTemplate }
 ];
 
-/** 生成一份带用户卡片与优先匹配区的状态，尽量压满生成器的输出形态。 */
+/**
+ * 生成一份压满输出形态的状态。
+ *
+ * 默认状态里卡片全在待选栏，正文只有兜底规则，撑不起渲染矩阵 ——
+ * 先按推荐落点把内置卡片铺开，再叠用户卡片。
+ */
 function richState() {
     const state = createDefaultState();
     state.base.fallback = true;
+    state.cards = applyRecommendedBuckets(state.cards);
 
     // 用户自定义规则集：一张大卡片 + 三张小卡片，落在灵活桶
     state.cards.push(
@@ -131,15 +139,23 @@ describe('rule-generator render matrix', () => {
     });
 
     it('clash：一张含 N 个来源的卡片只产出 1 个策略组与 N 条规则（§验收 10）', () => {
-        const { ini } = serializeState(richState());
-        const config = yaml.load(renderClashFromIniTemplate(ini, renderParams('clash')));
+        const state = richState();
+        const config = yaml.load(renderClashFromIniTemplate(
+            serializeState(state).ini, renderParams('clash')));
 
-        // 🤖 AI 服务 = 2 远程 + 3 内联
+        // 🤖 AI 服务：目录里的多张小卡片合成一个组，条数随目录变化，因此按状态算
+        const aiSources = effectiveSources(state.cards, state.cards.find(card => card.id === 'cat-ai'));
+        const remoteCount = new Set(aiSources.filter(source => source.kind === 'remote')
+            .map(source => source.value)).size;
+        const inlineCount = aiSources.filter(source => source.kind === 'inline').length;
+        expect(remoteCount).toBeGreaterThan(1);
+        expect(inlineCount).toBeGreaterThan(1);
+
         expect(config['proxy-groups'].filter(group => group.name === '🤖 AI 服务')).toHaveLength(1);
         const aiRules = config.rules.filter(rule => rule.endsWith(',🤖 AI 服务'));
-        expect(aiRules).toHaveLength(5);
-        expect(aiRules.filter(rule => rule.startsWith('RULE-SET,'))).toHaveLength(2);
-        expect(aiRules.filter(rule => rule.startsWith('DOMAIN-SUFFIX,'))).toHaveLength(3);
+        expect(aiRules).toHaveLength(remoteCount + inlineCount);
+        expect(aiRules.filter(rule => rule.startsWith('RULE-SET,'))).toHaveLength(remoteCount);
+        expect(aiRules.filter(rule => rule.startsWith('DOMAIN-SUFFIX,'))).toHaveLength(inlineCount);
 
         // 🎮 我的游戏 = 1 远程 + 2 内联，两个 URL 各建一个 rule-provider
         expect(config['proxy-groups'].filter(group => group.name === '🎮 我的游戏')).toHaveLength(1);

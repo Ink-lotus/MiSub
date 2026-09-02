@@ -3,40 +3,34 @@ import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
 import RuleGeneratorModal from '@/components/modals/RuleGeneratorModal.vue';
+import { createDefaultState } from '@/utils/rule-generator/catalog.js';
+import { serializeState } from '@/utils/rule-generator/serialize.js';
 
 const { t } = useI18n();
 
 const dataStore = useDataStore();
 
-const DEFAULT_RULE_TEMPLATE_CONTENT = `[custom]
-ruleset=🎯 全球直连,[]GEOIP,CN
-ruleset=🎯 全球直连,[]GEOSITE,CN
-ruleset=🎯 全球直连,[]DOMAIN-SUFFIX,local
-ruleset=📲 电报消息,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Telegram.list
-ruleset=🤖 AI 服务,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list
-ruleset=🎬 流媒体,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ProxyMedia.list
-ruleset=🛑 广告拦截,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list
-ruleset=🐟 漏网之鱼,[]FINAL
-
-custom_proxy_group=🚀 节点选择\`select\`[]♻️ 自动选择\`[]☑️ 手动切换\`[]DIRECT
-custom_proxy_group=♻️ 自动选择\`url-test\`.*\`http://www.gstatic.com/generate_204\`300,,50
-custom_proxy_group=☑️ 手动切换\`select\`.*
-custom_proxy_group=📲 电报消息\`select\`[]🚀 节点选择\`[]♻️ 自动选择\`[]DIRECT
-custom_proxy_group=🤖 AI 服务\`select\`[]🚀 节点选择\`[]♻️ 自动选择
-custom_proxy_group=🎬 流媒体\`select\`[]🚀 节点选择\`[]♻️ 自动选择\`[]DIRECT
-custom_proxy_group=🎯 全球直连\`select\`[]DIRECT\`[]🚀 节点选择
-custom_proxy_group=🛑 广告拦截\`select\`[]REJECT\`[]DIRECT
-custom_proxy_group=🐟 漏网之鱼\`select\`[]🚀 节点选择\`[]♻️ 自动选择\`[]DIRECT
-
-enable_rule_generator=true
-overwrite_original_rules=true`;
+/**
+ * 新模板的初始正文 = 可视化生成器默认状态的序列化结果。
+ *
+ * 刻意**不带** `; misub-visual-state-v1:` 注释头：那一行 base64 会占满文本框
+ * 第一行且不可读。生成器的 parseIniToState() 认得这份骨架，会直接给默认状态、
+ * 不报「按正文反推」的警告（parse.js 的 isUntouchedSkeleton）。
+ *
+ * 骨架里一张规则卡片都没有：分流方案由用户在可视化界面自己拼，不预设。
+ * 旧版这里手写了一份含电报 / AI / 流媒体的样例，它的 URL 与内置目录不完全一致，
+ * 反推时会撞出同名的重复卡片，已一并去掉。
+ */
+function defaultRuleTemplateContent() {
+  return serializeState(createDefaultState(), { includeHeader: false }).ini;
+}
 
 const blankTemplate = () => ({
   id: '',
   name: '',
   description: '',
   type: 'ini',
-  content: DEFAULT_RULE_TEMPLATE_CONTENT,
+  content: defaultRuleTemplateContent(),
   enabled: true
 });
 

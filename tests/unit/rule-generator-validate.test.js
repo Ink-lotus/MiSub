@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     createDefaultState,
     createRegionConfigs,
+    applyRecommendedBuckets,
     GROUP_NAMES,
     OTHER_REGION_ID
 } from '../../src/utils/rule-generator/catalog.js';
@@ -304,7 +305,14 @@ describe('rule-generator validate', () => {
         // 🚀 节点选择 + 🐟 漏网之鱼
         expect(countPolicyGroups(minimal)).toBe(2);
 
-        expect(countPolicyGroups(createDefaultState())).toBe(14);
+        // 默认状态卡片全在待选栏：基础组 3 + 地区 4 + 其他地区 + 漏网之鱼
+        expect(countPolicyGroups(createDefaultState())).toBe(9);
+
+        // 按推荐落点铺开后多出灵活桶 3 组与广告 / 代理 / 直连三个承接组
+        const recommended = createDefaultState();
+        recommended.cards = applyRecommendedBuckets(recommended.cards);
+        expect(countPolicyGroups(recommended)).toBe(15);
+
         expect(groupCountLevel(12)).toBe('green');
         expect(groupCountLevel(13)).toBe('yellow');
         expect(groupCountLevel(20)).toBe('yellow');

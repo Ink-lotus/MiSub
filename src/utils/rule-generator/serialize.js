@@ -18,6 +18,7 @@ import {
     RULE_BUCKET_ORDER,
     BUCKET_POLICY,
     AD_BLOCK_MEMBERS,
+    BUILTIN_CARDS,
     LOCAL_AREA_NETWORK_SOURCE,
     OTHER_REGION_ID,
     STATE_HEADER_PREFIX,
@@ -41,6 +42,36 @@ function toBase64(text) {
     return btoa(binary);
 }
 
+const BUILTIN_BY_ID = new Map(BUILTIN_CARDS.map(card => [card.id, card]));
+
+/** 参与「与目录比对」的字段，顺序固定，保证同一状态每次编码逐字节相同。 */
+const CARD_FIELDS = Object.freeze(['name', 'parentId', 'origin', 'bucket', 'order', 'sources', 'note']);
+
+/**
+ * 卡片瘦身：内置卡片只写「与目录不同的字段」，一字不差的整张压成一个 id 字符串。
+ *
+ * 目录有 78 张卡片，全量写进注释头约 31 KB —— 单模板 128 KB 上限的四分之一，
+ * 且在高级模式的 textarea 里是一行看不懂的巨串。瘦身后默认状态约 1.5 KB。
+ * 反向展开在 parse.js 的 expandCards()，两边必须对称。
+ *
+ * 数组长度与下标顺序原样保留 —— compareCards 的最后一级排序依赖数组下标。
+ */
+function compactCards(cards) {
+    return (Array.isArray(cards) ? cards : []).map(card => {
+        const builtin = card && card.origin === 'builtin' ? BUILTIN_BY_ID.get(card.id) : null;
+        if (!builtin) return card;
+
+        const diff = {};
+        CARD_FIELDS.forEach(field => {
+            if (card[field] === undefined) return;
+            if (JSON.stringify(card[field]) === JSON.stringify(builtin[field])) return;
+            diff[field] = card[field];
+        });
+
+        return Object.keys(diff).length > 0 ? { id: card.id, ...diff } : card.id;
+    });
+}
+
 /**
  * 生成往返注释头。
  *
@@ -48,7 +79,8 @@ function toBase64(text) {
  * `[custom]` 仍在，rule-template-handler.js:28 的 hasIniShape() 通过。
  */
 export function encodeStateHeader(state) {
-    return `${STATE_HEADER_PREFIX} ${toBase64(JSON.stringify(state))}`;
+    const payload = { ...state, cards: compactCards(state?.cards) };
+    return `${STATE_HEADER_PREFIX} ${toBase64(JSON.stringify(payload))}`;
 }
 
 /**

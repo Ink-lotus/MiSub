@@ -11,14 +11,29 @@
  * 只有落进「灵活桶」才各自生成独立策略组，落进其它桶只是把规则并入该桶的组。
  * 大卡片内小卡片数为 0 时不产出任何内容。
  *
- * 目录内的 URL 与其在 render-clash.js:64-99 下的重写目标已逐条探测（2026-08-30，
- * 全部 200）。两处与早期设计稿不符、已按实际情况修正：
+ * **全部卡片的初始桶一律是 `off`（留在左栏待选栏）**，生成器不替用户决定分流。
+ * 每张卡片各自的推荐落点仍保留在 RECOMMENDED_BUCKETS 里，供后续「一键设定
+ * 规则分组」使用，见 applyRecommendedBuckets()。
+ *
+ * 目录内的 URL 与其在 render-clash.js:64-99 下的重写目标已逐条探测
+ * （2026-09-01 复查，全部 200）：
  *   - SteamCN.list 与 GoogleFCM.list 在 `Clash/Ruleset/` 下，root 下为 404
- *   - Disney / GitHub / PayPal / PrimeVideo / Copilot 在 ACL4SSR 中不存在
+ *   - PayPal / PrimeVideo / Copilot / Perplexity 在 ACL4SSR 中确实不存在，
+ *     后两者改用内联规则
+ *   - 早期文档记的「Disney / GitHub / GameDownloadCN 不存在」是文件名记错：
+ *     实际是 `DisneyPlus.list` / `Github.list` / `GameDownload.list`，均存在
  */
 
-/** 往返状态的版本号与注释头前缀。 */
-export const STATE_VERSION = 1;
+/**
+ * 往返状态的版本号与注释头前缀。
+ *
+ * v2 起注释头里的卡片经过瘦身（内置卡片只记与目录不同的字段，见
+ * serialize.js 的 compactCards）。parse.js 同时接受 v1 的全量写法。
+ * 前缀刻意不跟着改 —— 它标识的是「这里有可视化状态」这件事，改了会让
+ * 已存模板的头整个找不到。
+ */
+export const STATE_VERSION = 2;
+export const SUPPORTED_STATE_VERSIONS = Object.freeze([1, 2]);
 export const STATE_HEADER_PREFIX = '; misub-visual-state-v1:';
 
 /**
@@ -123,28 +138,37 @@ const ACL = 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash';
 
 /**
  * 大卡片（集合容器）。sources 恒为空，规则全绑在小卡片上。
- * `bucket` 是它的默认落点，用户可拖走。
+ *
+ * `recommend` 是这张卡片的**推荐**落点，不是初始落点 —— 初始一律 `off`。
+ * 它只在后续「一键设定规则分组」里被用到（applyRecommendedBuckets）。
  */
 const PARENT_DEFS = [
     // 「直连例外」而非「CN 例外」：UnBan.list 里既有国内域名，也有 dl.google.com、
     // ol.epicgames.com 这类非国内域名，它是广告规则的误杀捞回表，不是 CN 清单。
     // 四张小卡片的共性是「必须先直连、别被后面的规则吞掉」，故取此名。
-    { id: 'cat-direct-exception', name: '✅ 直连例外', bucket: 'prepend',
+    { id: 'cat-direct-exception', name: '✅ 直连例外', recommend: 'prepend',
         note: '放入这里的规则拥有最高优先级且强制直连，用于避免被后面的广覆盖清单吞掉' },
-    { id: 'cat-ad', name: '🛑 广告过滤', bucket: 'adblock' },
-    { id: 'cat-ai', name: '🤖 AI 服务', bucket: 'flexible' },
-    { id: 'cat-media', name: '🎬 流媒体', bucket: 'flexible' },
-    { id: 'cat-social', name: '📲 社交通讯', bucket: 'proxy' },
-    { id: 'cat-tech', name: '💻 科技服务', bucket: 'proxy' },
-    { id: 'cat-game', name: '🎮 游戏平台', bucket: 'off' },
-    { id: 'cat-cn', name: '🏠 国内直连', bucket: 'direct' },
-    { id: 'cat-proxy', name: '🌏 广覆盖代理清单', bucket: 'off',
+    { id: 'cat-ad', name: '🛑 广告过滤', recommend: 'adblock' },
+    { id: 'cat-ai', name: '🤖 AI 服务', recommend: 'flexible' },
+    { id: 'cat-media', name: '🎬 流媒体', recommend: 'flexible' },
+    { id: 'cat-social', name: '📲 社交通讯', recommend: 'proxy' },
+    { id: 'cat-tech', name: '💻 科技服务', recommend: 'proxy' },
+    { id: 'cat-dev', name: '👨‍💻 开发与学术', recommend: 'proxy' },
+    { id: 'cat-game', name: '🎮 游戏平台', recommend: 'flexible',
+        note: '游戏对延迟敏感，单独成组便于挑低延迟节点' },
+    { id: 'cat-cn', name: '🏠 国内直连', recommend: 'direct' },
+    { id: 'cat-proxy', name: '🌏 广覆盖代理清单', recommend: 'off',
         note: '与各单项服务卡片大量重叠，与它们二选一' }
 ];
 
-/** 小卡片。`parentId` 指向所属大卡片，`sources` 是真正的规则来源。 */
+/**
+ * 小卡片。`parentId` 指向所属大卡片，`sources` 是真正的规则来源。
+ *
+ * `optional: true` = 推荐预设里不含它（与同组其它卡片重叠、覆盖面过大或过于小众），
+ * 需要用户自己拖进右栏。与初始落点无关 —— 初始所有卡片都在待选栏。
+ */
 const CHILD_DEFS = [
-    // —— CN 例外 ——
+    // —— 直连例外 ——
     { id: 'google-cn', parentId: 'cat-direct-exception', name: '🇨🇳 谷歌中国',
         sources: [{ kind: 'remote', value: `${ACL}/GoogleCN.list` }],
         note: 'google.cn 等国内可直连域名，必须排在谷歌服务之前' },
@@ -154,7 +178,7 @@ const CHILD_DEFS = [
     { id: 'ad-unban', parentId: 'cat-direct-exception', name: '🩹 误杀捞回',
         sources: [{ kind: 'remote', value: `${ACL}/UnBan.list` }],
         note: 'dl.google.com、ol.epicgames.com 等被广告规则误杀的域名。需排在广告过滤之前' },
-    { id: 'google-fcm', parentId: 'cat-direct-exception', name: '🔔 谷歌推送', off: true,
+    { id: 'google-fcm', parentId: 'cat-direct-exception', name: '🔔 谷歌推送', optional: true,
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/GoogleFCM.list` }],
         note: 'Android 推送服务，部分用户需要直连以保证及时性' },
 
@@ -163,74 +187,173 @@ const CHILD_DEFS = [
         sources: [
             { kind: 'remote', value: `${ACL}/BanAD.list` },
             { kind: 'remote', value: `${ACL}/BanProgramAD.list` }
-        ] },
-    { id: 'ad-easylist', parentId: 'cat-ad', name: '🧹 EasyList 增强', off: true,
-        sources: [
-            { kind: 'remote', value: `${ACL}/BanEasyList.list` },
-            { kind: 'remote', value: `${ACL}/BanEasyPrivacy.list` }
         ],
+        note: '通用广告与应用内广告，误杀少，适合作为唯一的广告清单' },
+    { id: 'ad-easylist', parentId: 'cat-ad', name: '🧹 EasyList 广告', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/BanEasyList.list` }],
         note: '规则量大，可能误杀，按需启用' },
+    { id: 'ad-easyprivacy', parentId: 'cat-ad', name: '🕵️ EasyPrivacy 广告追踪', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/BanEasyPrivacy.list` }],
+        note: '拦截统计与追踪域名，可能影响部分站点功能' },
+    { id: 'ad-easylist-cn', parentId: 'cat-ad', name: '🇨🇳 EasyList 中国广告', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/BanEasyListChina.list` }],
+        note: '国内站点广告，误杀概率高于基础清单' },
+    { id: 'ad-marketing', parentId: 'cat-ad', name: '📢 营销广告', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Marketing.list` }] },
 
     // —— AI 服务 ——
     { id: 'ai-openai', parentId: 'cat-ai', name: '🧠 OpenAI',
-        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/OpenAi.list` }] },
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/OpenAi.list` }],
+        note: 'ChatGPT / API。多数账号对 IP 归属地敏感，建议固定一个地区出口' },
     { id: 'ai-claude', parentId: 'cat-ai', name: '📎 Claude',
-        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Claude.list` }] },
-    { id: 'ai-others', parentId: 'cat-ai', name: '✨ 其它 AI',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Claude.list` }],
+        note: 'anthropic.com 与 claude.ai' },
+    { id: 'ai-gemini', parentId: 'cat-ai', name: '💠 Gemini',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Gemini.list` }],
+        note: 'Gemini / AI Studio / Colab / DeepMind' },
+    { id: 'ai-copilot', parentId: 'cat-ai', name: '🧑‍💻 Copilot',
+        sources: [
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'copilot.microsoft.com' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'copilot.cloud.microsoft' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'githubcopilot.com' }
+        ],
+        note: 'ACL4SSR 无对应清单，用内联规则覆盖' },
+    { id: 'ai-grok', parentId: 'cat-ai', name: '🛰️ Grok / xAI',
         sources: [
             { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'grok.com' },
-            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'x.ai' },
-            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'gemini.google.com' }
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'x.ai' }
         ] },
+    { id: 'ai-perplexity', parentId: 'cat-ai', name: '🔎 Perplexity',
+        sources: [{ kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'perplexity.ai' }] },
+    { id: 'ai-others', parentId: 'cat-ai', name: '✨ 其它 AI',
+        sources: [
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'mistral.ai' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'meta.ai' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'cursor.com' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'groq.com' },
+            { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'huggingface.co' }
+        ] },
+    { id: 'ai-collection', parentId: 'cat-ai', name: '🤖 AI 合集', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/AI.list` }],
+        note: '一张清单覆盖 OpenAI / Claude / Gemini / Copilot / Perplexity 等，与上面各单项卡片二选一' },
 
     // —— 流媒体 ——
     { id: 'youtube', parentId: 'cat-media', name: '📹 油管视频',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/YouTube.list` }] },
+    { id: 'youtube-music', parentId: 'cat-media', name: '🎧 油管音乐', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/YouTubeMusic.list` }],
+        note: '与油管视频大量重叠，单独启用只在需要区分出口时有意义' },
     { id: 'netflix', parentId: 'cat-media', name: '🎥 奈飞视频',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Netflix.list` }] },
-    { id: 'hbo', parentId: 'cat-media', name: '🎬 HBO', off: true,
+    { id: 'disney', parentId: 'cat-media', name: '🐭 迪士尼',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/DisneyPlus.list` }] },
+    { id: 'spotify', parentId: 'cat-media', name: '🎵 声破天',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Spotify.list` }] },
+    { id: 'hbo', parentId: 'cat-media', name: '🎬 HBO', optional: true,
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/HBO.list` }] },
-    { id: 'bahamut', parentId: 'cat-media', name: '🍿 巴哈姆特', off: true,
+    { id: 'twitch', parentId: 'cat-media', name: '🟣 Twitch', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Twitch.list` }] },
+    { id: 'tiktok', parentId: 'cat-media', name: '🎼 抖音国际', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/TikTok.list` }] },
+    { id: 'bahamut', parentId: 'cat-media', name: '🍿 巴哈姆特', optional: true,
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Bahamut.list` }],
         note: '台湾动画疯，需台湾节点' },
-    { id: 'spotify', parentId: 'cat-media', name: '🎵 声破天', off: true,
-        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Spotify.list` }] },
-    { id: 'tiktok', parentId: 'cat-media', name: '🎼 抖音国际', off: true,
-        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/TikTok.list` }] },
-    { id: 'media-proxy', parentId: 'cat-media', name: '🌏 国际媒体合集', off: true,
+    { id: 'bilibili-hmt', parentId: 'cat-media', name: '📺 哔哩哔哩港澳台', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/BilibiliHMT.list` }],
+        note: '港澳台限定番剧，需港澳台节点。与「🅱️ 哔哩哔哩」直连卡片配合使用' },
+    { id: 'media-proxy', parentId: 'cat-media', name: '🌏 国际媒体合集', optional: true,
         sources: [{ kind: 'remote', value: `${ACL}/ProxyMedia.list` }],
         note: '覆盖面广，与上面各单项清单大量重叠，二选一' },
 
     // —— 社交通讯 ——
     { id: 'telegram', parentId: 'cat-social', name: '📲 电报消息',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Telegram.list` }] },
-    { id: 'twitter', parentId: 'cat-social', name: '🐦 推特', off: true,
+    { id: 'twitter', parentId: 'cat-social', name: '🐦 推特',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Twitter.list` }] },
+    { id: 'facebook', parentId: 'cat-social', name: '📘 脸书',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Facebook.list` }] },
+    { id: 'instagram', parentId: 'cat-social', name: '📷 Instagram',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Instagram.list` }] },
+    { id: 'discord', parentId: 'cat-social', name: '🎧 Discord',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Discord.list` }] },
+    { id: 'whatsapp', parentId: 'cat-social', name: '💬 WhatsApp', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Whatsapp.list` }] },
+    { id: 'reddit', parentId: 'cat-social', name: '🗨️ Reddit', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Reddit.list` }] },
 
     // —— 科技服务 ——
     { id: 'google', parentId: 'cat-tech', name: '🔍 谷歌服务',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Google.list` }],
         note: '含 DOMAIN-KEYWORD,google，会吞掉 google.cn —— 谷歌中国必须排在它之前' },
-    { id: 'microsoft', parentId: 'cat-tech', name: 'Ⓜ️ 微软服务', off: true,
-        sources: [
-            { kind: 'remote', value: `${ACL}/Ruleset/Microsoft.list` },
-            { kind: 'remote', value: `${ACL}/OneDrive.list` },
-            { kind: 'remote', value: `${ACL}/Bing.list` }
-        ] },
-    { id: 'apple', parentId: 'cat-tech', name: '🍎 苹果服务', off: true,
+    { id: 'microsoft', parentId: 'cat-tech', name: 'Ⓜ️ 微软服务',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Microsoft.list` }] },
+    { id: 'apple', parentId: 'cat-tech', name: '🍎 苹果服务',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Apple.list` }] },
+    { id: 'onedrive', parentId: 'cat-tech', name: '☁️ OneDrive', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/OneDrive.list` }] },
+    { id: 'bing', parentId: 'cat-tech', name: '🅱️ 必应搜索', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Bing.list` }] },
+    { id: 'amazon', parentId: 'cat-tech', name: '📦 亚马逊', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Amazon.list` }],
+        note: '含 AWS 与 Prime Video' },
+    { id: 'adobe', parentId: 'cat-tech', name: '🅰️ Adobe', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Adobe.list` }] },
+    { id: 'zoom', parentId: 'cat-tech', name: '🎥 Zoom', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Zoom.list` }] },
+
+    // —— 开发与学术 ——
+    { id: 'github', parentId: 'cat-dev', name: '🐙 GitHub',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Github.list` }] },
+    { id: 'wikipedia', parentId: 'cat-dev', name: '📚 维基百科',
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Wikipedia.list` }] },
+    { id: 'docker', parentId: 'cat-dev', name: '🐳 Docker', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Docker.list` }] },
+    { id: 'jetbrains', parentId: 'cat-dev', name: '🧩 JetBrains', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/JetBrains.list` }] },
+    { id: 'developer', parentId: 'cat-dev', name: '🧰 开发者服务', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Developer.list` }],
+        note: 'npm / PyPI / Maven 等包仓库与开发平台' },
+    { id: 'scholar', parentId: 'cat-dev', name: '🎓 学术资源', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Scholar.list` }] },
 
     // —— 游戏平台 ——
     { id: 'steam', parentId: 'cat-game', name: '🕹️ Steam 平台',
-        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Steam.list` }] },
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Steam.list` }],
+        note: '「🎮 Steam 中国」需排在它之前，否则国内 CDN 会被一起代理' },
     { id: 'epic', parentId: 'cat-game', name: '👾 Epic 平台',
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Epic.list` }] },
+    { id: 'blizzard', parentId: 'cat-game', name: '❄️ 暴雪战网', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Blizzard.list` }] },
+    { id: 'nintendo', parentId: 'cat-game', name: '🎮 任天堂', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Nintendo.list` }] },
+    { id: 'playstation', parentId: 'cat-game', name: '🎯 索尼 PSN', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Sony.list` }] },
+    { id: 'xbox', parentId: 'cat-game', name: '🟩 Xbox', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Xbox.list` }] },
+    { id: 'origin', parentId: 'cat-game', name: '🎲 EA / Origin', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Origin.list` }] },
+    { id: 'game-download', parentId: 'cat-game', name: '⬇️ 游戏下载', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/GameDownload.list` }],
+        note: '游戏本体下载。放进直连桶更划算，代理带宽通常更贵' },
 
     // —— 国内直连。IP 类清单靠 order 钉在域名类之后 ——
     { id: 'china-domain', parentId: 'cat-cn', name: '🏠 中国域名', order: 100,
         sources: [{ kind: 'remote', value: `${ACL}/ChinaDomain.list` }] },
     { id: 'media-cn', parentId: 'cat-cn', name: '📺 国内媒体', order: 105,
         sources: [{ kind: 'remote', value: `${ACL}/ChinaMedia.list` }] },
+    { id: 'bilibili', parentId: 'cat-cn', name: '🅱️ 哔哩哔哩', order: 106,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Bilibili.list` }] },
+    { id: 'netease-music', parentId: 'cat-cn', name: '🎶 网易云音乐', order: 107,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/NetEaseMusic.list` }],
+        note: '版权按 IP 归属地判定，走代理会大面积变灰' },
+    { id: 'cn-vendors', parentId: 'cat-cn', name: '🛍️ 国内大厂', order: 108,
+        sources: [
+            { kind: 'remote', value: `${ACL}/Ruleset/Alibaba.list` },
+            { kind: 'remote', value: `${ACL}/Ruleset/Baidu.list` },
+            { kind: 'remote', value: `${ACL}/Ruleset/Tencent.list` },
+            { kind: 'remote', value: `${ACL}/Ruleset/ByteDance.list` }
+        ],
+        note: '阿里 / 百度 / 腾讯 / 字节，四张清单合成一张卡片' },
     { id: 'download', parentId: 'cat-cn', name: '⬇️ 下载工具', order: 110,
         sources: [{ kind: 'remote', value: `${ACL}/Download.list` }],
         note: 'PT / BT 与软件下载，走直连避免占用代理带宽' },
@@ -244,8 +367,10 @@ const CHILD_DEFS = [
     // —— 广覆盖代理清单 ——
     { id: 'proxy-gfw', parentId: 'cat-proxy', name: '🚀 GFW 清单',
         sources: [{ kind: 'remote', value: `${ACL}/ProxyGFWlist.list` }] },
-    { id: 'proxy-lite', parentId: 'cat-proxy', name: '🪶 精简代理清单', off: true,
-        sources: [{ kind: 'remote', value: `${ACL}/ProxyLite.list` }] }
+    { id: 'proxy-lite', parentId: 'cat-proxy', name: '🪶 精简代理清单', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/ProxyLite.list` }] },
+    { id: 'proxy-blocked', parentId: 'cat-proxy', name: '🚧 常被墙站点', optional: true,
+        sources: [{ kind: 'remote', value: `${ACL}/Ruleset/TopBlockedSites.list` }] }
 ];
 
 /**
@@ -253,7 +378,8 @@ const CHILD_DEFS = [
  *   parentId === null  → 大卡片，sources 恒为空
  *   parentId !== null  → 小卡片，规则来源在此
  *
- * 小卡片默认跟随父卡片的桶；标了 `off` 的留在待选栏，需要用户手动拖入。
+ * **所有卡片的 `bucket` 一律是 `off`**：生成器不替用户决定分流，全部卡片
+ * 初始都在左栏待选栏，由用户自己拖进右栏。推荐落点另存 RECOMMENDED_BUCKETS。
  */
 function buildCatalog() {
     const parents = PARENT_DEFS.map((def, index) => Object.freeze({
@@ -261,21 +387,18 @@ function buildCatalog() {
         name: def.name,
         parentId: null,
         origin: 'builtin',
-        bucket: def.bucket,
+        bucket: 'off',
         order: index,
         sources: Object.freeze([]),
         ...(def.note ? { note: def.note } : {})
     }));
-
-    const parentBucket = new Map(PARENT_DEFS.map(def => [def.id, def.bucket]));
 
     const children = CHILD_DEFS.map((def, index) => Object.freeze({
         id: def.id,
         name: def.name,
         parentId: def.parentId,
         origin: 'builtin',
-        // 标了 off 的小卡片留在待选栏，其余跟随父卡片
-        bucket: def.off ? 'off' : (parentBucket.get(def.parentId) || 'off'),
+        bucket: 'off',
         order: def.order ?? index,
         sources: Object.freeze((def.sources || []).map((source, sourceIndex) => Object.freeze({
             id: `${def.id}-s${sourceIndex + 1}`,
@@ -289,6 +412,34 @@ function buildCatalog() {
 
 /** 内置卡片目录（大卡片 + 小卡片展平）。 */
 export const BUILTIN_CARDS = buildCatalog();
+
+/**
+ * 卡片 id → 推荐落点。**不参与初始状态**，只供后续「一键设定规则分组」使用。
+ *
+ * 小卡片跟随父卡片的推荐落点；标了 `optional` 的小卡片推荐值为 `off`
+ * （与同组其它卡片重叠、覆盖面过大或过于小众）。
+ */
+export const RECOMMENDED_BUCKETS = Object.freeze(Object.fromEntries([
+    ...PARENT_DEFS.map(def => [def.id, def.recommend]),
+    ...CHILD_DEFS.map(def => [
+        def.id,
+        def.optional
+            ? 'off'
+            : (PARENT_DEFS.find(parent => parent.id === def.parentId)?.recommend || 'off')
+    ])
+]));
+
+/**
+ * 按推荐落点批量改桶，返回新数组，不改入参。用户卡片与目录里没有的卡片原样保留。
+ *
+ * 这是后续「一键设定规则分组」的纯函数内核 —— 界面入口尚未实现。
+ */
+export function applyRecommendedBuckets(cards) {
+    return (cards || []).map(card => {
+        const recommend = card && RECOMMENDED_BUCKETS[card.id];
+        return recommend ? { ...card, bucket: recommend } : { ...card };
+    });
+}
 
 /** 把冻结的内置卡片深拷成可变卡片，供 state 使用。 */
 export function cloneBuiltinCards() {
@@ -328,7 +479,12 @@ export function createRegionConfigs(enabledIds = DEFAULT_ENABLED_REGIONS) {
     return regions;
 }
 
-/** 生成器的初始状态。 */
+/**
+ * 生成器的初始状态。
+ *
+ * 卡片全部落在待选栏（`bucket: 'off'`）—— 分流方案由用户自己拼，生成器不做预设。
+ * 基础策略组与地区分组仍带默认勾选：它们是节点侧的组织方式，不决定任何流量走向。
+ */
 export function createDefaultState() {
     return {
         version: STATE_VERSION,

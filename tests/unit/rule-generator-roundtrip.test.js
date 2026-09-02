@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     createDefaultState,
     createRegionConfigs,
+    applyRecommendedBuckets,
+    BUILTIN_CARDS,
     GROUP_NAMES,
     STATE_HEADER_PREFIX
 } from '../../src/utils/rule-generator/catalog.js';
@@ -18,6 +20,34 @@ function normalize(ini) {
 
 function stripHeader(ini) {
     return ini.split('\n').filter(line => !line.startsWith(STATE_HEADER_PREFIX)).join('\n');
+}
+
+/**
+ * 默认状态里卡片全在待选栏、正文只有兜底规则，反推路径无从发挥。
+ * 因此凡是测反推的用例都用「按推荐落点铺开」的状态当底座。
+ */
+function recommendedState() {
+    const state = createDefaultState();
+    state.cards = applyRecommendedBuckets(state.cards);
+    return state;
+}
+
+/** 注释头里的 JSON。 */
+function decodeHeader(ini) {
+    const line = ini.split('\n').find(item => item.startsWith(STATE_HEADER_PREFIX));
+    const payload = line.slice(STATE_HEADER_PREFIX.length).trim();
+    return JSON.parse(new TextDecoder().decode(
+        Uint8Array.from(atob(payload), char => char.charCodeAt(0))));
+}
+
+/** 与 serialize.js 的 toBase64 同口径，供构造历史格式的注释头使用。 */
+function encodeUtf8Base64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 1) {
+        binary += String.fromCharCode(bytes[index]);
+    }
+    return btoa(binary);
 }
 
 describe('rule-generator roundtrip', () => {
@@ -67,7 +97,7 @@ describe('rule-generator roundtrip', () => {
     });
 
     it('注释头缺失时按正文反推，INI 层面等价且 partial 标记为真（§A3）', () => {
-        const { ini } = serializeState(createDefaultState());
+        const { ini } = serializeState(recommendedState());
         const body = stripHeader(ini);
 
         const result = parseIniToState(body);
@@ -82,7 +112,7 @@ describe('rule-generator roundtrip', () => {
     });
 
     it('反推结果二次往返稳定，不逐轮漂移', () => {
-        const body = stripHeader(serializeState(createDefaultState()).ini);
+        const body = stripHeader(serializeState(recommendedState()).ini);
         const first = parseIniToState(body).state;
         const firstIni = serializeState(first, { includeHeader: false }).ini;
 
@@ -108,7 +138,7 @@ describe('rule-generator roundtrip', () => {
     });
 
     it('反推保留未被正文提到的小卡片来源，不留空壳', () => {
-        const recovered = parseIniToState(stripHeader(serializeState(createDefaultState()).ini)).state;
+        const recovered = parseIniToState(stripHeader(serializeState(recommendedState()).ini)).state;
 
         // 这是曾经的 bug：正文没提到的内置卡片被清空 sources，
         // 在左栏看着正常、一拖进桶就报「没有任何来源」
@@ -116,14 +146,14 @@ describe('rule-generator roundtrip', () => {
             card.parentId !== null && (card.sources || []).length === 0);
         expect(emptyChildren).toEqual([]);
 
-        // 默认关掉的小卡片留在待选栏，但来源仍在
+        // 推荐落点里不含的小卡片留在待选栏，但来源仍在
         const hbo = recovered.cards.find(card => card.id === 'hbo');
         expect(hbo.bucket).toBe('off');
         expect(hbo.sources).toHaveLength(1);
     });
 
     it('反推保持大卡片与小卡片的同桶关系', () => {
-        const recovered = parseIniToState(stripHeader(serializeState(createDefaultState()).ini)).state;
+        const recovered = parseIniToState(stripHeader(serializeState(recommendedState()).ini)).state;
 
         const parent = recovered.cards.find(card => card.id === 'cat-direct-exception');
         expect(parent.bucket).toBe('prepend');
@@ -157,7 +187,7 @@ describe('rule-generator roundtrip', () => {
     });
 
     it('注释头损坏或版本不符时退回正文反推', () => {
-        const body = stripHeader(serializeState(createDefaultState()).ini);
+        const body = stripHeader(serializeState(recommendedState()).ini);
 
         const broken = parseIniToState(`${STATE_HEADER_PREFIX} !!!not-base64!!!\n${body}`);
         expect(broken.source).toBe('body');
@@ -173,5 +203,129 @@ describe('rule-generator roundtrip', () => {
         expect(result.source).toBe('default');
         expect(result.partial).toBe(false);
         expect(result.state).toEqual(createDefaultState());
+    });
+
+    it('未动过的初始骨架直接给默认状态，不挂「结果可能有损」的警告', () => {
+        // 新建模板的初始正文就是这个：默认状态、不带注释头
+        const skeleton = serializeState(createDefaultState(), { includeHeader: false }).ini;
+
+        const result = parseIniToState(skeleton);
+        expect(result.source).toBe('default');
+        expect(result.partial).toBe(false);
+        expect(result.drifted).toBe(false);
+        expect(result.warnings).toEqual([]);
+        expect(result.state).toEqual(createDefaultState());
+    });
+
+    it('注释头里的内置卡片只记与目录的差异，体积不随目录膨胀', () => {
+        const header = decodeHeader(serializeState(createDefaultState()).ini);
+
+        // 一字未改的内置卡片压成一个 id 字符串
+        expect(header.cards).toHaveLength(BUILTIN_CARDS.length);
+        expect(header.cards.every(entry => typeof entry === 'string')).toBe(true);
+
+        // 改过桶的那张只多记一个 bucket 字段
+        const moved = createDefaultState();
+        moved.cards.find(card => card.id === 'telegram').bucket = 'proxy';
+        const movedHeader = decodeHeader(serializeState(moved).ini);
+        expect(movedHeader.cards).toContainEqual({ id: 'telegram', bucket: 'proxy' });
+
+        // 78 张卡片的目录，默认状态的注释头仍在 4 KB 以内（全量写法约 31 KB）
+        const headerLine = serializeState(createDefaultState()).ini.split('\n')[0];
+        expect(headerLine.length).toBeLessThan(4096);
+    });
+
+    it('v1 的全量注释头仍能读，读出来即归一到当前版本', () => {
+        const state = recommendedState();
+        const legacy = `${STATE_HEADER_PREFIX} ${encodeUtf8Base64(
+            JSON.stringify({ ...state, version: 1 }))}\n`
+            + stripHeader(serializeState(state).ini);
+
+        const result = parseIniToState(legacy);
+        expect(result.source).toBe('header');
+        expect(result.partial).toBe(false);
+        expect(result.state).toEqual(state);
+    });
+});
+
+/**
+ * 反推时的卡片同名问题。
+ *
+ * 起因是旧的「新建模板」初始正文：它的 `📲 电报消息` 组用的是 ACL4SSR 的
+ * root 路径 `Clash/Telegram.list`，与目录里的 `Clash/Ruleset/Telegram.list`
+ * 字面不同，反推时既认不出来、又按组名建了一张用户卡片 —— 界面上于是出现
+ * 两张「📲 电报消息」。同名卡片一起进灵活桶还会被 dedupeGroupsByName 静默合并。
+ */
+describe('rule-generator 反推：卡片不同名', () => {
+    const ACL = 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash';
+
+    /** 拼一份最小的手写模板。 */
+    function iniWith(...ruleLines) {
+        return ['[custom]', ...ruleLines, `ruleset=${GROUP_NAMES.final},[]FINAL`, '',
+            `custom_proxy_group=${GROUP_NAMES.nodeSelect}\`select\`[]DIRECT`, ''].join('\n');
+    }
+
+    function namesOf(state) {
+        return state.cards.map(card => card.name);
+    }
+
+    it('组名撞上内置小卡片名时接管那张卡片，不另建同名用户卡片', () => {
+        // 旧默认模板的写法：组名与目录一致，URL 用的是 root 路径
+        const { state } = parseIniToState(iniWith(`ruleset=📲 电报消息,${ACL}/Telegram.list`));
+
+        const named = state.cards.filter(card => card.name === '📲 电报消息');
+        expect(named).toHaveLength(1);
+
+        // 接管的就是内置那张，且以正文为准换成正文里的 URL
+        expect(named[0].id).toBe('telegram');
+        expect(named[0].bucket).toBe('flexible');
+        expect(named[0].sources.map(source => source.value)).toEqual([`${ACL}/Telegram.list`]);
+
+        // 父卡片不跟进来 —— 它一跟进来就得改叫同一个名字
+        expect(state.cards.find(card => card.id === 'cat-social').bucket).toBe('off');
+
+        // 组名原样还原
+        const regenerated = serializeState(state, { includeHeader: false }).ini;
+        expect(regenerated).toContain(`ruleset=📲 电报消息,${ACL}/Telegram.list`);
+        expect(regenerated).toContain('custom_proxy_group=📲 电报消息`select`');
+    });
+
+    it('组名撞上内置大卡片名时接管大卡片，来源挂到它下面的小卡片上', () => {
+        const { state } = parseIniToState(iniWith('ruleset=🤖 AI 服务,https://example.com/my-ai.list'));
+
+        expect(namesOf(state).filter(name => name === '🤖 AI 服务')).toHaveLength(1);
+
+        const parent = state.cards.find(card => card.id === 'cat-ai');
+        expect(parent.bucket).toBe('flexible');
+        expect(parent.sources).toEqual([]);          // 大卡片自身恒无来源
+
+        const holder = state.cards.find(card => card.parentId === 'cat-ai' && card.origin === 'user');
+        expect(holder.bucket).toBe('flexible');
+        expect(holder.sources.map(source => source.value)).toEqual(['https://example.com/my-ai.list']);
+
+        // 目录里的 AI 小卡片没被点亮，因此只输出正文那一条
+        const regenerated = serializeState(state, { includeHeader: false }).ini;
+        expect(regenerated).toContain('ruleset=🤖 AI 服务,https://example.com/my-ai.list');
+    });
+
+    it('命中的小卡片其组名就是自己的名字时不把父卡片拉进来改名', () => {
+        const { state } = parseIniToState(iniWith(`ruleset=🔍 谷歌服务,${ACL}/Ruleset/Google.list`));
+
+        expect(namesOf(state).filter(name => name === '🔍 谷歌服务')).toHaveLength(1);
+        expect(state.cards.find(card => card.id === 'google').bucket).toBe('flexible');
+        expect(state.cards.find(card => card.id === 'cat-tech').bucket).toBe('off');
+        expect(state.cards.find(card => card.id === 'cat-tech').name).toBe('💻 科技服务');
+    });
+
+    it('正文只提了多来源卡片里的一条时以正文为准，不补回另几条', () => {
+        const { state } = parseIniToState(iniWith(`ruleset=${GROUP_NAMES.adBlock},${ACL}/BanAD.list`));
+
+        const card = state.cards.find(item => item.id === 'ad-basic');
+        expect(card.bucket).toBe('adblock');
+        expect(card.sources.map(source => source.value)).toEqual([`${ACL}/BanAD.list`]);
+
+        // 不多出用户从未写过的 BanProgramAD 行
+        const regenerated = serializeState(state, { includeHeader: false }).ini;
+        expect(regenerated).not.toContain('BanProgramAD');
     });
 });

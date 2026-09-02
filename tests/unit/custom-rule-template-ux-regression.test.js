@@ -138,7 +138,7 @@ describe('Custom rule template UX regressions', () => {
     expect(wrapper.text()).toContain('custom:missing-template');
   });
 
-  it('prefills new custom rule templates with a complete editable standard template', async () => {
+  it('prefills new custom rule templates with the visual generator skeleton', async () => {
     const wrapper = mountWithStore(RuleTemplateManager, {
       ruleTemplates: []
     });
@@ -146,10 +146,22 @@ describe('Custom rule template UX regressions', () => {
     await wrapper.findAll('button').find(button => ['New template', '新建模板'].includes(button.text())).trigger('click');
     const textareaValue = wrapper.find('textarea').element.value;
 
+    // 骨架本身是一份可直接用的完整模板
     expect(textareaValue).toContain('[custom]');
-    expect(textareaValue).toContain('ruleset=🎯 全球直连,[]GEOIP,CN');
+    expect(textareaValue).toContain('ruleset=DIRECT,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/LocalAreaNetwork.list');
+    expect(textareaValue).toContain('ruleset=🐟 漏网之鱼,[]FINAL');
     expect(textareaValue).toContain('custom_proxy_group=🚀 节点选择`select`');
+    expect(textareaValue).toContain('custom_proxy_group=🇭🇰 香港节点`url-test`');
     expect(textareaValue).toContain('enable_rule_generator=true');
     expect(textareaValue).toContain('overwrite_original_rules=true');
+
+    // 不替用户预设分流：一张规则卡片都不铺
+    expect(textareaValue).not.toContain('Telegram');
+    expect(textareaValue).not.toContain('OpenAi');
+    expect(textareaValue).not.toContain('BanAD');
+
+    // 不带可视化状态注释头 —— 那一行 base64 会占满文本框第一行
+    expect(textareaValue.startsWith('[custom]')).toBe(true);
+    expect(textareaValue).not.toContain('misub-visual-state');
   });
 });

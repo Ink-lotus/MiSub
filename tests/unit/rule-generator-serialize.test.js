@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     createDefaultState,
     createRegionConfigs,
+    applyRecommendedBuckets,
     GROUP_NAMES,
     AD_BLOCK_MEMBERS,
     OTHER_REGION_ID,
@@ -39,6 +40,13 @@ function stateWithCards(cards) {
     return state;
 }
 
+/** 默认状态里卡片全在待选栏，按推荐落点铺开后才有各段内容。 */
+function recommendedState() {
+    const state = createDefaultState();
+    state.cards = applyRecommendedBuckets(state.cards);
+    return state;
+}
+
 /** 大卡片：sources 恒空，靠小卡片供给。 */
 function parent(props) {
     return {
@@ -58,8 +66,25 @@ function child(props) {
 }
 
 describe('rule-generator serialize', () => {
-    it('默认状态：六段规则顺序与十段组顺序', () => {
-        const { ini, groupCount, ruleCount } = serializeState(createDefaultState());
+    it('默认状态：卡片全在待选栏，只输出局域网直连与兜底', () => {
+        const { ini } = serializeState(createDefaultState());
+
+        // 生成器不替用户决定分流：一张规则卡片都没放进右栏
+        expect(ruleLines(ini)).toEqual([
+            'ruleset=DIRECT,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/LocalAreaNetwork.list',
+            `ruleset=${GROUP_NAMES.final},[]FINAL`
+        ]);
+
+        // 承接组由卡片归属派生，因此一个都不输出
+        const names = groupLines(ini).map(groupName);
+        [GROUP_NAMES.adBlock, GROUP_NAMES.proxy, GROUP_NAMES.direct].forEach(name =>
+            expect(names).not.toContain(name));
+        expect(names[0]).toBe(GROUP_NAMES.nodeSelect);
+        expect(names.at(-1)).toBe(GROUP_NAMES.final);
+    });
+
+    it('按推荐落点铺开后：六段规则顺序与十段组顺序', () => {
+        const { ini, groupCount, ruleCount } = serializeState(recommendedState());
 
         expect(ini.split('\n')[0].startsWith(STATE_HEADER_PREFIX)).toBe(true);
         expect(ini).toContain('[custom]');

@@ -43,10 +43,16 @@ const parseWarnings = ref([]);
 const isPartial = ref(false);
 const isDrifted = ref(false);
 
-/** 每段的折叠状态。默认只展开有内容的几段。 */
+/**
+ * 每段的折叠状态。
+ *
+ * 五个可拖放段默认全展开 —— 收起时段内的 draggable 整个不渲染，拖不进去；
+ * 而卡片初始全在待选栏，拖进来是唯一的填充方式。🐟 漏网之鱼 不接受拖放，
+ * 只有一行固定说明，默认收起省地方。
+ */
 const collapsed = ref({
   prepend: false, flexible: false,
-  adblock: true, proxy: true, direct: true, final: true
+  adblock: false, proxy: false, direct: false, final: true
 });
 
 /** 窄屏不启用拖拽，改用「移到… ▾」下拉，语义等价（§7.2）。 */
