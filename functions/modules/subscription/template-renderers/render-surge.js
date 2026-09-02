@@ -1,5 +1,6 @@
 import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { ruleModifierSuffix } from './rule-modifiers.js';
 
 function buildProxyLine(proxy) {
     const type = String(proxy.type || '').toLowerCase();
@@ -157,8 +158,9 @@ function buildRuleLine(rule) {
     if (!type) return null;
     if (type === 'RULE-SET') return `RULE-SET,${rule.value},${rule.policy}`;
     if (type === 'MATCH' || type === 'FINAL') return `FINAL,${rule.policy}`;
-    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}`;
-    return `${type},${rule.value},${rule.policy}`;
+    const modifiers = ruleModifierSuffix(rule);
+    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}${modifiers}`;
+    return `${type},${rule.value},${rule.policy}${modifiers}`;
 }
 
 export function renderSurgeFromTemplateModel(model, options = {}) {

@@ -1,6 +1,7 @@
 import yaml from 'js-yaml';
 import { clashFix } from '../../../utils/format-utils.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { ruleModifierSuffix } from './rule-modifiers.js';
 
 function mapGroupType(type) {
     const normalized = String(type || '').trim().toLowerCase();
@@ -112,12 +113,13 @@ function mapRule(rule, ruleProviderMap) {
     const type = String(rule.type || '').toUpperCase();
     if (!type) return null;
     if (type === 'MATCH' || type === 'FINAL') return `MATCH,${rule.policy}`;
-    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}`;
+    const modifiers = ruleModifierSuffix(rule);
+    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}${modifiers}`;
     if (type === 'RULE-SET') {
         const providerName = ruleProviderMap.get(rule.value);
         return `RULE-SET,${providerName || rule.value},${rule.policy}`;
     }
-    return `${type},${rule.value},${rule.policy}`;
+    return `${type},${rule.value},${rule.policy}${modifiers}`;
 }
 
 export function renderClashFromTemplateModel(model) {

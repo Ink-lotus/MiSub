@@ -102,6 +102,16 @@ function richState() {
     return state;
 }
 
+/**
+ * 取路由到某个策略的规则。
+ *
+ * 不能用 `endsWith(',策略')` —— IP 类规则的策略之后还跟着 `no-resolve`
+ * 修饰符（rule-modifiers.js），按后缀匹配会漏掉它们。
+ */
+function rulesFor(rules, policy) {
+    return rules.filter(rule => rule.split(',').includes(policy));
+}
+
 describe('rule-generator render matrix', () => {
     it.each(RENDERERS)('$name 渲染不抛错且产出非空', ({ render, name }) => {
         const { ini } = serializeState(richState());
@@ -170,21 +180,63 @@ describe('rule-generator render matrix', () => {
         expect(inlineCount).toBeGreaterThan(1);
 
         expect(config['proxy-groups'].filter(group => group.name === '🤖 AI 服务')).toHaveLength(1);
-        const aiRules = config.rules.filter(rule => rule.endsWith(',🤖 AI 服务'));
+        const aiRules = rulesFor(config.rules, '🤖 AI 服务');
         expect(aiRules).toHaveLength(remoteCount + inlineCount);
         expect(aiRules.filter(rule => rule.startsWith('RULE-SET,'))).toHaveLength(remoteCount);
         expect(aiRules.filter(rule => rule.startsWith('DOMAIN-SUFFIX,'))).toHaveLength(inlineCount);
 
         // 🎮 我的游戏 = 1 远程 + 2 内联，两个 URL 各建一个 rule-provider
         expect(config['proxy-groups'].filter(group => group.name === '🎮 我的游戏')).toHaveLength(1);
-        expect(config.rules.filter(rule => rule.endsWith(',🎮 我的游戏'))).toHaveLength(3);
+        expect(rulesFor(config.rules, '🎮 我的游戏')).toHaveLength(3);
 
-        // 宿主的六个渲染器都不透传规则 extras（render-clash.js:110-119 的 mapRule
-        // 只输出 type/value/policy），因此 INI 里的 no-resolve 被静默丢弃。
-        // 生成器仍照写 —— 它保留在往返状态里，且让模板在 subconverter 等
-        // 支持该修饰符的转换器下仍然正确。此处固定该已知行为。
-        expect(config.rules).toContain('IP-CIDR,203.0.113.0/24,🎮 我的游戏');
-        expect(config.rules.some(rule => rule.includes('no-resolve'))).toBe(false);
+        // 渲染器按白名单透传 IP 类规则的 no-resolve，见 rule-modifiers.js。
+        // 生成器写它（serialize.js 的 formatRuleLine），ini-template-parser.js:82
+        // 收进 extras，到这里才真正落进产物。修饰符在**策略之后**：
+        // mihomo 的规则形态是 TYPE,VALUE,POLICY[,no-resolve]。
+        expect(config.rules).toContain('IP-CIDR,203.0.113.0/24,🎮 我的游戏,no-resolve');
+    });
+
+    it('clash：GEOIP,CN 带上 no-resolve —— 兜底流量不再被强制解析', () => {
+        const { ini } = serializeState(richState());
+        const config = yaml.load(renderClashFromIniTemplate(ini, renderParams('clash')));
+
+        expect(config.rules).toContain(`GEOIP,CN,${GROUP_NAMES.direct},no-resolve`);
+        expect(config.rules.some(rule => /^GEOIP,CN,[^,]+$/.test(rule))).toBe(false);
+    });
+
+    it('surge / loon / quanx 同样透传 no-resolve', () => {
+        const { ini } = serializeState(richState());
+
+        [
+            { name: 'surge', render: renderSurgeFromIniTemplate },
+            { name: 'loon', render: renderLoonFromIniTemplate },
+            { name: 'quanx', render: renderQuanxFromIniTemplate }
+        ].forEach(({ name, render }) => {
+            const lines = render(ini, renderParams(name)).split('\n').map(line => line.trim());
+            const ipCidr = lines.find(line => line.toUpperCase().startsWith('IP-CIDR,203.0.113.0/24'));
+            expect(ipCidr, name).toBeTruthy();
+            expect(ipCidr, name).toContain('no-resolve');
+        });
+    });
+
+    // no-resolve 挂在域名规则上是非法语法，部分客户端会整份配置拒绝加载。
+    // 渲染器必须按规则类型 gate，不能见到 extras 就拼上去。
+    it('域名类规则上的 no-resolve 被丢弃，不透传', () => {
+        const state = richState();
+        state.cards.push({
+            id: 'u3', name: '✳️ 误标的域名卡', parentId: null, origin: 'user',
+            bucket: 'proxy', order: -2,
+            sources: [{ id: 'u3s1', kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'bad.example.com', noResolve: true }]
+        });
+        const { ini } = serializeState(state);
+
+        // 生成器照写第三段，透不透传由渲染器决定
+        expect(ini).toContain('[]DOMAIN-SUFFIX,bad.example.com,no-resolve');
+
+        const config = yaml.load(renderClashFromIniTemplate(ini, renderParams('clash')));
+        expect(config.rules).toContain(`DOMAIN-SUFFIX,bad.example.com,${GROUP_NAMES.proxy}`);
+        expect(config.rules.some(rule => rule.startsWith('DOMAIN-SUFFIX,bad.example.com') && rule.includes('no-resolve')))
+            .toBe(false);
     });
 
     it('clash：远程来源转成 rule-providers，URL 各自独立（§2.2）', () => {
