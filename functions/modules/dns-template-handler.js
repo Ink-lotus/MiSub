@@ -1,6 +1,8 @@
+import yaml from 'js-yaml';
 import { StorageFactory } from '../storage-adapter.js';
 import { createJsonResponse, createErrorResponse, readJsonWithLimit } from './utils.js';
-import { filterValidDnsTemplateFields } from '../../shared/dns-template-validation.js';
+import { filterValidDnsTemplateFields, DNS_TEMPLATE_KINDS } from '../../shared/dns-template-validation.js';
+import { resolveSafeDnsConfig, buildSingboxDnsConfig } from '../../shared/safe-dns.js';
 
 export const KV_KEY_DNS_TEMPLATES = 'misub_dns_templates_v1';
 const MAX_TEMPLATE_COUNT = 50;
@@ -24,7 +26,16 @@ export function normalizeDnsTemplates(input = []) {
     for (const item of input.slice(0, MAX_TEMPLATE_COUNT)) {
         if (!item || typeof item !== 'object') continue;
         const hasAnyDns = DNS_FIELDS.some(f => typeof item[f] === 'string' && item[f].trim().length > 0);
-        if (!hasAnyDns) continue;
+
+        // kind 先确定，再决定是否因缺少 DNS 字段而跳过
+        const rawKind = String(item.kind || 'raw').trim().toLowerCase();
+        const kind = rawKind === 'policy' ? 'policy' : 'raw';
+
+        // raw 模式要求至少一个 DNS 字段；policy 模式不要求
+        if (kind === 'raw' && !hasAnyDns) continue;
+
+        // policy 模式要求 policy 字段存在且是对象
+        if (kind === 'policy' && (!item.policy || typeof item.policy !== 'object')) continue;
         let totalLen = 0;
         const fields = {};
         for (const f of DNS_FIELDS) {
@@ -42,11 +53,27 @@ export function normalizeDnsTemplates(input = []) {
         }
         seen.add(id);
         const createdAt = item.createdAt && !Number.isNaN(Date.parse(item.createdAt)) ? item.createdAt : nowIso();
+
+        // policy 字段：仅 kind=policy 时保留，其余忽略
+        const policyField = (kind === 'policy' && item.policy && typeof item.policy === 'object')
+            ? {
+                mode: String(item.policy.mode || 'clean').trim().toLowerCase(),
+                domestic: Array.isArray(item.policy.domestic) ? item.policy.domestic : [],
+                foreign: Array.isArray(item.policy.foreign) ? item.policy.foreign : [],
+                polluted: Array.isArray(item.policy.polluted) ? item.policy.polluted : []
+            }
+            : undefined;
+
+        // kind=policy 时无需 DNS 字段内容，kind=raw 时需要至少一个 DNS 字段
+        if (kind === 'raw' && !hasAnyDns) continue;
+
         normalized.push({
             id,
             name: String(item.name || '').trim().slice(0, 80) || '未命名 DNS 模板',
             description: String(item.description || '').trim().slice(0, 300),
             enabled: item.enabled !== false,
+            kind,
+            ...(policyField ? { policy: policyField } : {}),
             createdAt,
             updatedAt: nowIso(),
             ...fields
@@ -65,6 +92,21 @@ export function resolveEffectiveDnsConfig({ profileDns = {}, globalDns = {}, tem
         if (mode !== 'template' || !templateId) return null;
         const tpl = templates.find(t => t.enabled !== false && t.id === templateId);
         if (!tpl) return null;
+
+        // 策略模式：合成 clash / singbox 文本；其余格式无手写内容时保持空
+        if (tpl.kind === 'policy' && tpl.policy) {
+            const clashDns = resolveSafeDnsConfig(tpl.policy, { mode: tpl.policy.mode });
+            const singboxDns = buildSingboxDnsConfig(tpl.policy, { mode: tpl.policy.mode });
+            return {
+                clash: yaml.dump(clashDns, { indent: 2, lineWidth: -1, noRefs: true }),
+                singbox: JSON.stringify(singboxDns, null, 2),
+                surge: typeof tpl.surge === 'string' ? tpl.surge.trim() : '',
+                loon: typeof tpl.loon === 'string' ? tpl.loon.trim() : '',
+                quanx: typeof tpl.quanx === 'string' ? tpl.quanx.trim() : ''
+            };
+        }
+
+        // 手写模式（原有行为）
         return filterValidDnsTemplateFields(tpl);
     };
     const profileMode = profileDns?.mode || 'global';
