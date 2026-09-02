@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
-import { validateDnsTemplate, validatePolicyRecord } from '../../../../../shared/dns-template-validation.js';
+import { validateDnsTemplate, validatePolicyRecord, validateDnsTemplateResolvers } from '../../../../../shared/dns-template-validation.js';
 
 const { t } = useI18n();
 
@@ -71,6 +71,13 @@ const visibleDnsFields = computed(() => (
 const policyWarnings = computed(() => (
   isPolicyMode.value ? validatePolicyRecord(selectedTemplate.value?.policy || {}).warnings : []
 ));
+
+// 手写字段里的回环/全零地址提示；纯 warn，不影响 status 与运行时取值
+const resolverWarnings = computed(() => validateDnsTemplateResolvers(selectedTemplate.value || {}));
+
+function fieldResolverWarnings(field) {
+  return resolverWarnings.value[field] || [];
+}
 
 // 解析器列表在 UI 上按行编辑，存储仍是数组
 function resolverText(field) {
@@ -386,6 +393,12 @@ async function saveTemplates() {
             >
               <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">{{ t(field.labelKey) }}</span>
               <span class="flex shrink-0 items-center gap-2">
+                <span
+                  v-if="fieldResolverWarnings(field.key).length"
+                  :data-dns-resolver-badge="field.key"
+                  :title="t('settings.dnsResolverLoopbackWarning')"
+                  class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                >{{ fieldResolverWarnings(field.key).length }}</span>
                 <span :data-dns-status="field.key" class="flex items-center gap-1.5 text-[11px] font-semibold" :class="statusTextClass(field.key)">
                   <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
                   {{ validationLabel(field.key) }}
@@ -420,6 +433,13 @@ async function saveTemplates() {
               ></textarea>
               <p v-if="validationResult(field.key).status === 'invalid'" class="mt-1 text-[11px] leading-relaxed text-red-600 dark:text-red-400">
                 {{ validationReason(field.key) }} {{ t('settings.dnsValidationFallback') }}
+              </p>
+              <p
+                v-if="fieldResolverWarnings(field.key).length"
+                :data-dns-resolver-warning="field.key"
+                class="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400"
+              >
+                {{ t('settings.dnsResolverLoopbackWarning') }} {{ fieldResolverWarnings(field.key).join('、') }}
               </p>
             </div>
           </div>

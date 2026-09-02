@@ -113,3 +113,118 @@ export function validatePolicyRecord(policy = {}) {
 
     return { valid: true, warnings };
 }
+
+/**
+ * 手写模式（kind: 'raw'）的解析器地址提示。
+ *
+ * 与 validatePolicyRecord 的判定口径刻意不同：手写模式只标出回环与全零地址，
+ * 不限制 scheme。原因是 mihomo 支持 quic:// / h3:// / dhcp:// / rcode:// 等写法，
+ * 按 resolverHost 的四种 scheme 去卡会大量误报；而回环与全零一定让客户端 DNS 失效。
+ *
+ * 纯 warn，不参与 validateDnsTemplateField 的 status，不影响运行时取值。
+ */
+const LOOPBACK_HOSTS = new Set(['localhost', '::1', '0.0.0.0']);
+
+function stripPolicyGroup(value) {
+    const raw = String(value ?? '');
+    const idx = raw.indexOf('#');
+    return idx === -1 ? raw : raw.slice(0, idx);
+}
+
+function extractHost(value) {
+    let raw = stripPolicyGroup(value).trim();
+    if (!raw || raw === 'system') return '';
+
+    raw = raw.replace(/^[a-z0-9+.-]+:\/\//i, '');   // scheme
+    raw = raw.split(/[/?]/)[0];                      // path / query
+
+    if (raw.startsWith('[')) {                       // IPv6 字面量
+        const end = raw.indexOf(']');
+        return end === -1 ? '' : raw.slice(1, end).toLowerCase();
+    }
+
+    // 裸 IPv6（两个以上冒号）不可能再带端口，整串就是主机
+    if ((raw.match(/:/g) || []).length > 1) return raw.toLowerCase();
+
+    const parts = raw.split(':');
+    const host = parts.length > 1 && /^\d+$/.test(parts[parts.length - 1])
+        ? parts.slice(0, -1).join(':')
+        : raw;
+    return host.toLowerCase();
+}
+
+export function isLoopbackResolver(value) {
+    const host = extractHost(value);
+    if (!host) return false;
+    return LOOPBACK_HOSTS.has(host) || /^127\./.test(host) || /^0\./.test(host);
+}
+
+const CLASH_RESOLVER_KEYS = [
+    'nameserver',
+    'fallback',
+    'default-nameserver',
+    'proxy-server-nameserver',
+    'direct-nameserver'
+];
+
+function flattenStrings(value, out) {
+    if (typeof value === 'string') out.push(value);
+    else if (Array.isArray(value)) value.forEach(item => flattenStrings(item, out));
+    else if (isObject(value)) Object.values(value).forEach(item => flattenStrings(item, out));
+}
+
+function clashResolverValues(text) {
+    const parsed = yaml.load(text);
+    if (!isObject(parsed)) return [];
+    const out = [];
+    CLASH_RESOLVER_KEYS.forEach(key => flattenStrings(parsed[key], out));
+    flattenStrings(parsed['nameserver-policy'], out);
+    return out;
+}
+
+function singboxResolverValues(text) {
+    const parsed = JSON.parse(text);
+    if (!isObject(parsed) || !Array.isArray(parsed.servers)) return [];
+    // 新版字段是 server，旧版是 address；两者都扫
+    return parsed.servers
+        .filter(isObject)
+        .flatMap(item => [item.server, item.address])
+        .filter(v => typeof v === 'string');
+}
+
+function quanxResolverValues(text) {
+    return text
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => /^server\s*=/i.test(line))
+        .map(line => line.replace(/^server\s*=\s*/i, ''))
+        // server=/domain/1.1.1.1 这种域名定向写法，地址在最后一段
+        .map(value => (value.startsWith('/') ? value.split('/').filter(Boolean).pop() || '' : value));
+}
+
+/** 返回该字段里所有回环/全零地址；解析失败一律返回空数组（格式问题交给 status 报） */
+export function collectResolverWarnings(field, value) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!text) return [];
+
+    let candidates = [];
+    try {
+        if (field === 'clash') candidates = clashResolverValues(text);
+        else if (field === 'singbox') candidates = singboxResolverValues(text);
+        else if (field === 'surge' || field === 'loon') candidates = text.split(',');
+        else if (field === 'quanx') candidates = quanxResolverValues(text);
+    } catch {
+        return [];
+    }
+
+    return candidates
+        .map(v => stripPolicyGroup(v).trim())
+        .filter(v => v && isLoopbackResolver(v));
+}
+
+/** 逐字段收集手写模板的地址提示 */
+export function validateDnsTemplateResolvers(template = {}) {
+    return Object.fromEntries(
+        DNS_TEMPLATE_FIELDS.map(field => [field, collectResolverWarnings(field, template?.[field])])
+    );
+}
