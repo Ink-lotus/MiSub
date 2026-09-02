@@ -85,14 +85,16 @@ describe('rule-generator serialize', () => {
 
     it('按推荐落点铺开后：六段规则顺序与十段组顺序', () => {
         const { ini, groupCount, ruleCount } = serializeState(recommendedState());
+        const lines = ini.trimEnd().split('\n');
 
-        expect(ini.split('\n')[0].startsWith(STATE_HEADER_PREFIX)).toBe(true);
-        expect(ini).toContain('[custom]');
-        expect(ini.trimEnd().endsWith('overwrite_original_rules=true')).toBe(true);
+        // 注释头在最后一行 —— 首行放 base64 会让高级模式的文本框一眼全是乱码
+        expect(lines[0]).toBe('[custom]');
+        expect(lines.at(-1).startsWith(STATE_HEADER_PREFIX)).toBe(true);
+        expect(lines).toContain('overwrite_original_rules=true');
         expect(ruleCount).toBe(ruleLines(ini).length);
         expect(groupCount).toBe(groupLines(ini).length);
 
-        // 规则顺序：前置修正 → 灵活桶 → 广告 → 国外代理 → 全球直连 → FINAL
+        // 规则顺序：前置修正 → 灵活桶 → 广告 → 国际代理 → 全球直连 → FINAL
         const policies = ruleLines(ini).map(rulePolicy);
         const first = policy => policies.indexOf(policy);
         expect(first('DIRECT')).toBe(0);
@@ -297,8 +299,12 @@ describe('rule-generator serialize', () => {
 
     it('注释头对渲染器惰性，且不影响 hasIniShape', () => {
         const { ini } = serializeState(createDefaultState());
-        expect(ini.split('\n')[0].startsWith(';')).toBe(true);
+        const lines = ini.trimEnd().split('\n');
+
+        expect(lines.at(-1).startsWith(';')).toBe(true);
         expect(/\[(custom|proxy\s*group|rule|ruleset|proxy)\]/i.test(ini)).toBe(true);
         expect(serializeState(createDefaultState(), { includeHeader: false }).ini.startsWith('[custom]')).toBe(true);
+        expect(serializeState(createDefaultState(), { includeHeader: false }).ini)
+            .not.toContain(STATE_HEADER_PREFIX);
     });
 });

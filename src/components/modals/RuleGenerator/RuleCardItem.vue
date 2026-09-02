@@ -5,6 +5,9 @@
  * 卡片上**没有出口下拉** —— 出口由策略组决定，组成员里含 🚀 节点选择 与 DIRECT，
  * 用户在客户端自行选择，不在卡片上写死。
  *
+ * 大卡片的小卡片**不在这里渲染** —— 它们在 CardPalette / BucketPanel 里各自是
+ * 一条可拖放列表（拖进去即改父）。本组件只用 `children` 显示数量与空集合判定。
+ *
  * 广告类卡片只加一个橙色 AD 角标，不改底色边框：红色留给去重撞车独占，
  * 两种状态才不会混淆。
  */
@@ -17,8 +20,11 @@ const props = defineProps({
   card: { type: Object, required: true },
   /** 该卡片实际产出的来源数（大卡片含其小卡片） */
   effectiveCount: { type: Number, default: 0 },
-  /** 大卡片下当前同桶的小卡片 */
+  /** 大卡片下当前同桶的小卡片，只用于计数与空集合提示 */
   children: { type: Array, default: () => [] },
+  /** 大卡片：它有自己的小卡片列表，卡片左侧给一个展开钮 */
+  expandable: { type: Boolean, default: false },
+  expanded: { type: Boolean, default: false },
   /** 是否展开来源明细 */
   showSources: { type: Boolean, default: false },
   /** 窄屏降级：显示「移到…」下拉取代拖拽 */
@@ -30,7 +36,7 @@ const props = defineProps({
   isEmpty: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['move', 'remove-source', 'move-child']);
+const emit = defineEmits(['move', 'remove-source', 'toggle']);
 
 const isParent = computed(() => props.card.parentId === null);
 const isAd = computed(() => /广告/.test(props.card.name));
@@ -49,7 +55,7 @@ function sourceLabel(source) {
 
 <template>
   <div
-    class="group rounded-lg border px-3 py-2 transition"
+    class="group cursor-grab rounded-lg border px-3 py-2 transition active:cursor-grabbing"
     :class="[
       conflicting
         ? 'border-red-400 bg-red-50 dark:border-red-500/60 dark:bg-red-900/20'
@@ -58,7 +64,19 @@ function sourceLabel(source) {
     ]"
   >
     <div class="flex items-center gap-2">
-      <span class="drag-handle cursor-grab select-none text-gray-300 dark:text-gray-600" aria-hidden="true">⋮⋮</span>
+      <!--
+        展开钮长在卡片里、占原来 `⋮⋮` 那个位置。整张卡片都能拖之后
+        把手已无必要，留着反而挤掉一格宽度。它是 <button>，被
+        dragOptions 的 filter 排除，因此点它不会起拖拽。
+      -->
+      <button
+        v-if="expandable"
+        type="button"
+        :title="t('settings.ruleGenToggleSection')"
+        :aria-expanded="expanded"
+        @click.stop="emit('toggle')"
+        class="no-drag -ml-1.5 flex h-7 w-6 shrink-0 items-center justify-center rounded text-sm leading-none text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-gray-200"
+      >{{ expanded ? '▾' : '▸' }}</button>
 
       <span
         class="min-w-0 flex-1 truncate text-xs"
@@ -98,40 +116,6 @@ function sourceLabel(source) {
       {{ t('settings.ruleGenEmptyParent') }}
     </p>
 
-    <div v-if="showMoveMenu" class="mt-2">
-      <select
-        value=""
-        @change="emit('move', $event.target.value); $event.target.value = ''"
-        class="rounded border border-gray-200 bg-white px-1.5 py-1 text-[11px] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-      >
-        <option value="">{{ t('settings.ruleGenMoveTo') }}</option>
-        <option v-for="option in moveOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-      </select>
-    </div>
-
-    <!-- 大卡片展开：列出小卡片，各自可单独移走 -->
-    <ul v-if="showSources && isParent && children.length" class="mt-2 space-y-1 border-t border-gray-100 pt-2 dark:border-white/5">
-      <li
-        v-for="child in children"
-        :key="child.id"
-        class="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400"
-      >
-        <span class="truncate">· {{ child.name }}</span>
-        <span class="shrink-0 rounded bg-gray-100 px-1 text-[9px] dark:bg-white/10">
-          {{ (child.sources || []).length }}
-        </span>
-        <select
-          v-if="showMoveMenu"
-          value=""
-          @change="emit('move-child', { cardId: child.id, bucket: $event.target.value }); $event.target.value = ''"
-          class="ml-auto shrink-0 rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] dark:border-gray-700 dark:bg-gray-900"
-        >
-          <option value="">{{ t('settings.ruleGenMoveTo') }}</option>
-          <option v-for="option in moveOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
-      </li>
-    </ul>
-
     <!-- 小卡片展开：列出自身来源 -->
     <ul v-if="showSources && !isParent && (card.sources || []).length" class="mt-2 space-y-1 border-t border-gray-100 pt-2 dark:border-white/5">
       <li
@@ -150,5 +134,21 @@ function sourceLabel(source) {
     </ul>
 
     <p v-if="card.note && !showSources" class="mt-1 truncate text-[10px] text-gray-400">{{ card.note }}</p>
+
+    <!--
+      窄屏降级用的「移到…」下拉：放在卡片**右下角**，那里离拇指最近。
+      它排在来源清单与备注之后，因此永远是卡片里最后一个可操作元素。
+    -->
+    <div v-if="showMoveMenu" class="mt-2 flex justify-end">
+      <select
+        value=""
+        :aria-label="t('settings.ruleGenMoveTo')"
+        @change="emit('move', $event.target.value); $event.target.value = ''"
+        class="rounded border border-gray-200 bg-white px-2 py-1.5 text-[11px] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+      >
+        <option value="">{{ t('settings.ruleGenMoveTo') }}</option>
+        <option v-for="option in moveOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+      </select>
+    </div>
   </div>
 </template>

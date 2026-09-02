@@ -23,10 +23,35 @@ const props = defineProps({
   moveOptions: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['move', 'drop']);
+const emit = defineEmits(['move', 'drop', 'child-drop']);
 
 const query = ref('');
 const expanded = ref(new Set());
+
+/**
+ * 共用的 vuedraggable / SortableJS 选项。
+ *
+ * `handle` 刻意不设：只能拖 `⋮⋮` 那个小把手时，指针恒在卡片最左侧，
+ * 而 Sortable 的落点判定看的是**指针**位置，于是"卡片看着已经进右栏、
+ * 其实指针还在左栏"。整张卡片可拖后这个错位就没了；卡片里的按钮与下拉
+ * 由 `filter` 排除，`preventOnFilter: false` 让它们的点击照常生效。
+ *
+ * `emptyInsertThreshold` 默认只有 5px —— 空列表几乎贴着边才认，正是
+ * "拖拽判定范围太小"的来源。抬到 44px。
+ */
+const dragOptions = computed(() => ({
+  group: { name: 'rule-cards', pull: true, put: true },
+  disabled: !props.dragEnabled,
+  itemKey: 'id',
+  animation: 180,
+  filter: 'button, select, input, a, .no-drag',
+  preventOnFilter: false,
+  emptyInsertThreshold: 44,
+  scroll: true,
+  bubbleScroll: true,
+  scrollSensitivity: 90,
+  scrollSpeed: 14
+}));
 
 /** 搜索中一律展开，否则命中的小卡片会被收起状态藏住。 */
 function isExpanded(key) {
@@ -39,6 +64,12 @@ function toggleSection(key) {
   expanded.value = next;
 }
 
+/** 拖进收起的节 → 先展开再落位，否则卡片看着像凭空消失。 */
+function onChildDrop(parentId, cards) {
+  if (!expanded.value.has(parentId)) toggleSection(parentId);
+  emit('child-drop', { parentId, cards });
+}
+
 function matches(card, keyword) {
   if (!keyword) return true;
   if (String(card.name || '').toLowerCase().includes(keyword)) return true;
@@ -48,23 +79,26 @@ function matches(card, keyword) {
 
 /**
  * 待选区的分组：每张待选大卡片一节，节内是它同样待选的小卡片。
- * 父卡片已被拖走的孤立小卡片单独归入「散card」节。
+ * 父卡片已被拖走的孤立小卡片单独归入「散落卡片」节。
+ *
+ * 节内小卡片按 `order` 排 —— 拖拽会重写 order，不按它排的话拖完看不出变化。
  */
 const sections = computed(() => {
   const keyword = query.value.trim().toLowerCase();
   const off = props.cards.filter(card => card.bucket === 'off');
   const parents = off.filter(card => card.parentId === null);
   const parentIds = new Set(parents.map(card => card.id));
+  const byOrder = (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0);
 
   const groups = parents.map(parent => ({
     key: parent.id,
     parent,
-    children: off.filter(card => card.parentId === parent.id)
+    children: off.filter(card => card.parentId === parent.id).sort(byOrder)
   }));
 
   const orphans = off.filter(card => card.parentId !== null && !parentIds.has(card.parentId));
   if (orphans.length) {
-    groups.push({ key: '__orphans__', parent: null, children: orphans });
+    groups.push({ key: '__orphans__', parent: null, children: orphans.sort(byOrder) });
   }
 
   // 搜索命中大卡片名则整节保留，否则只留命中的小卡片
@@ -96,7 +130,7 @@ function childrenInBucket(parentId) {
       />
     </div>
 
-    <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
       <p v-if="!sections.length" class="py-6 text-center text-xs text-gray-400">
         {{ t('settings.ruleGenPaletteEmpty') }}
       </p>
@@ -108,55 +142,46 @@ function childrenInBucket(parentId) {
         class="rounded-lg"
         :class="section.parent ? 'border border-dashed border-gray-200 p-1.5 dark:border-gray-700' : ''"
       >
-        <!-- 大卡片本体，可整体拖走；左侧小三角展开它的小卡片 -->
-        <div v-if="section.parent" class="flex items-start gap-1">
-          <button
-            type="button"
-            :title="t('settings.ruleGenToggleSection')"
-            :aria-expanded="isExpanded(section.key)"
-            @click="toggleSection(section.key)"
-            class="mt-2 shrink-0 px-0.5 text-[10px] text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
-          >{{ isExpanded(section.key) ? '▾' : '▸' }}</button>
-
-          <draggable
-            :model-value="[section.parent]"
-            @update:model-value="value => emit('drop', { bucket: 'off', cards: value })"
-            :group="{ name: 'rule-cards', pull: true, put: true }"
-            :disabled="!dragEnabled"
-            item-key="id"
-            handle=".drag-handle"
-            animation="180"
-            class="min-w-0 flex-1"
-          >
-            <template #item="{ element }">
-              <RuleCardItem
-                :card="element"
-                :effective-count="countFor(element)"
-                :children="childrenInBucket(element.id)"
-                :show-move-menu="!dragEnabled"
-                :move-options="moveOptions"
-                @move="value => emit('move', { cardId: element.id, bucket: value })"
-              />
-            </template>
-          </draggable>
-        </div>
+        <!-- 大卡片本体，可整体拖走；卡片左侧的小三角展开它的小卡片 -->
+        <draggable
+          v-if="section.parent"
+          v-bind="dragOptions"
+          :model-value="[section.parent]"
+          @update:model-value="value => emit('drop', { bucket: 'off', cards: value })"
+        >
+          <template #item="{ element }">
+            <RuleCardItem
+              :card="element"
+              :effective-count="countFor(element)"
+              :children="childrenInBucket(element.id)"
+              :expandable="true"
+              :expanded="isExpanded(section.key)"
+              :show-move-menu="!dragEnabled"
+              :move-options="moveOptions"
+              @toggle="toggleSection(section.key)"
+              @move="value => emit('move', { cardId: element.id, bucket: value })"
+            />
+          </template>
+        </draggable>
 
         <p v-else class="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
           {{ t('settings.ruleGenLooseCards') }}
         </p>
 
-        <!-- 小卡片，可单独拖走且不影响大卡片 -->
+        <!--
+          小卡片列表。拖进来即改父（emit child-drop），因此可以把小卡片
+          在集合之间搬家；收起时给空数组，列表照旧接放、放进来后自动展开。
+          缩进用 padding 而不是 margin，好让可接放区域横跨整栏而不是
+          只有右边那一截。
+        -->
         <draggable
-          v-if="!section.parent || isExpanded(section.key)"
-          :model-value="section.children"
-          @update:model-value="value => emit('drop', { bucket: 'off', cards: value })"
-          :group="{ name: 'rule-cards', pull: true, put: true }"
-          :disabled="!dragEnabled"
-          item-key="id"
-          handle=".drag-handle"
-          animation="180"
-          class="mt-1 min-h-[1.5rem] space-y-1"
-          :class="section.parent ? 'ml-5' : ''"
+          v-bind="dragOptions"
+          :model-value="!section.parent || isExpanded(section.key) ? section.children : []"
+          @update:model-value="value => section.parent
+            ? onChildDrop(section.parent.id, value)
+            : emit('drop', { bucket: 'off', cards: value })"
+          class="mt-1 min-h-[2rem] space-y-1"
+          :class="section.parent ? 'pl-7' : ''"
         >
           <template #item="{ element }">
             <RuleCardItem
@@ -167,8 +192,31 @@ function childrenInBucket(parentId) {
               @move="value => emit('move', { cardId: element.id, bucket: value })"
             />
           </template>
+          <template #footer>
+            <p
+              v-if="section.parent && !isExpanded(section.key) && section.children.length"
+              class="px-1 py-1 text-[10px] text-gray-400"
+            >{{ section.children.length }} {{ t('settings.ruleGenCollapsedChildren') }}</p>
+          </template>
         </draggable>
       </div>
+
+      <!--
+        尾部空白也接放：卡片拖到待选栏任意空处就回到左栏（保留原本的父卡片）。
+        不加任何可见控件 —— 它只是把「拖回左边」这件事的判定范围铺满整栏。
+        `flex-1` 吃掉剩余高度；窄屏不启用拖拽，因此整块不渲染。
+      -->
+      <draggable
+        v-if="dragEnabled"
+        v-bind="dragOptions"
+        :model-value="[]"
+        @update:model-value="value => emit('drop', { bucket: 'off', cards: value })"
+        class="min-h-[2.5rem] flex-1"
+      >
+        <template #item="{ element }">
+          <RuleCardItem :card="element" />
+        </template>
+      </draggable>
     </div>
   </div>
 </template>

@@ -7,10 +7,10 @@
  * 策略组只有这些，顺序即客户端列表顺序：
  *   🚀 节点选择（固定） → ☑️ 手动切换 → ♻️ 自动选择 → 🔯 故障转移
  *   → 地区组 + 🌐 其他地区 → 灵活桶各组 → 🛑 广告拦截
- *   → 🌍 国外代理 → 🎯 全球直连 → 🐟 漏网之鱼（固定）
+ *   → 🌍 国际代理 → 🎯 全球直连 → 🐟 漏网之鱼（固定）
  *
  * 规则段顺序即匹配优先级：
- *   前置修正 → 灵活桶 → 广告拦截 → 国外代理 → 全球直连 → []FINAL
+ *   前置修正 → 灵活桶 → 广告拦截 → 国际代理 → 全球直连 → []FINAL
  */
 
 import {
@@ -329,6 +329,10 @@ function buildGroupLines(state) {
 /**
  * 主入口：GeneratorState → INI 文本。
  *
+ * 注释头写在**最后一行**：它是一串 base64，放首行会让高级模式的文本框
+ * 第一眼全是乱码。`ini-template-parser.js:10` 跳过 `;` 开头的行，位置无所谓；
+ * `parse.js` 的 readStateHeader 也扫全文而不只看开头。
+ *
  * @param {object} state GeneratorState
  * @param {object} [options]
  * @param {boolean} [options.includeHeader=true] 是否写入往返注释头
@@ -339,15 +343,17 @@ export function serializeState(state, options = {}) {
     const ruleLines = buildRuleLines(state);
     const groupLines = buildGroupLines(state);
 
-    const out = [];
-    if (includeHeader) out.push(encodeStateHeader(state));
-    out.push('[custom]');
+    const out = ['[custom]'];
     out.push(...ruleLines);
     out.push('');
     out.push(...groupLines);
     out.push('');
     out.push('enable_rule_generator=true');
     out.push('overwrite_original_rules=true');
+    if (includeHeader) {
+        out.push('');
+        out.push(encodeStateHeader(state));
+    }
 
     return {
         ini: `${out.join('\n')}\n`,

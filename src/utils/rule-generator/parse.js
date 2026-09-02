@@ -40,14 +40,17 @@ function fromBase64(encoded) {
     return new TextDecoder().decode(bytes);
 }
 
-/** 取出注释头里的 state；缺失或损坏时返回 null。 */
+/**
+ * 取出注释头里的 state；缺失或损坏时返回 null。
+ *
+ * 扫全文而不是只看开头：序列化把头写在**最后一行**（serialize.js），
+ * 而历史模板的头在第一行，两种都要认。
+ */
 function readStateHeader(iniText) {
     const lines = String(iniText || '').split(/\r?\n/);
 
     for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (!trimmed.startsWith(';') && !trimmed.startsWith('#')) break;  // 已进入正文
         if (!trimmed.startsWith(STATE_HEADER_PREFIX)) continue;
 
         const payload = trimmed.slice(STATE_HEADER_PREFIX.length).trim();
@@ -253,14 +256,23 @@ function recoverRegions(groups) {
     return regions;
 }
 
-/** 承接组名 → 桶。认不出的组名说明是灵活桶里的自定义组。 */
+/**
+ * 承接组名 → 桶。认不出的组名说明是灵活桶里的自定义组。
+ *
+ * `LEGACY_POLICY_NAMES` 收历史组名：组名改过之后，早先生成的模板正文里还是
+ * 旧名字，不认它就会把那一段规则反推成一张灵活桶用户卡片、凭空多出一个组。
+ */
+const LEGACY_POLICY_NAMES = Object.freeze({
+    '🌍 国外代理': 'proxy'        // v2.7 起改叫 🌍 国际代理
+});
+
 function bucketForPolicy(policy) {
     if (policy === 'DIRECT') return 'prepend';
     switch (policy) {
         case GROUP_NAMES.adBlock: return 'adblock';
         case GROUP_NAMES.proxy: return 'proxy';
         case GROUP_NAMES.direct: return 'direct';
-        default: return null;
+        default: return LEGACY_POLICY_NAMES[policy] || null;
     }
 }
 

@@ -187,17 +187,54 @@ function handleDrop({ bucket, cards }) {
 }
 
 /**
+ * 拖进某张大卡片的小卡片列表：**改父**并跟到该大卡片所在的桶。
+ *
+ * 这是把小卡片在集合之间搬家的唯一入口，也让「空分组卡片」有意义
+ * （submitRuleset 允许只建大卡片）。大卡片被拖进来时不改父 —— 嵌套只有两层，
+ * 它只是变成同桶的一张顶层卡片。
+ */
+function handleChildDrop({ parentId, cards }) {
+  const parent = state.value.cards.find(item => item.id === parentId);
+  if (!parent) return;
+
+  (cards || []).forEach((dropped, index) => {
+    const card = state.value.cards.find(item => item.id === dropped.id);
+    if (!card || card.id === parentId) return;
+
+    card.order = index;
+    const previous = card.bucket;
+    card.bucket = parent.bucket;
+
+    if (card.parentId === null) {
+      // 大卡片不能变成小卡片，只把它连带自己的小卡片挪到同一个桶
+      if (previous !== card.bucket) {
+        state.value.cards.forEach(child => {
+          if (child.parentId === card.id && child.bucket === previous) child.bucket = card.bucket;
+        });
+      }
+      return;
+    }
+
+    card.parentId = parentId;
+  });
+}
+
+/**
  * 顶栏提交自定义规则集：整组行合成**一张大卡片 + 每行一张小卡片**，
  * 落到左栏候选区顶部（bucket: 'off'），不直接进右侧桶。
+ *
+ * 一行规则都没填时只建大卡片 —— 那是一张空的分组卡片，用来把别的小卡片
+ * 拖进来自己攒集合（handleChildDrop）。
  */
 function submitRuleset({ name, rows }) {
   const valid = (rows || []).filter(row => String(row.value || '').trim());
-  if (!valid.length) return;
+  const label = String(name || '').trim();
+  if (!valid.length && !label) return;
 
   const parentId = nextId('user');
   const parent = {
     id: parentId,
-    name: name.trim() || `📦 自定义规则集 ${state.value.cards.filter(c => c.origin === 'user' && c.parentId === null).length + 1}`,
+    name: label || `📦 自定义规则集 ${state.value.cards.filter(c => c.origin === 'user' && c.parentId === null).length + 1}`,
     parentId: null,
     origin: 'user',
     bucket: 'off',
@@ -312,6 +349,7 @@ function apply() {
             class="max-h-[26rem]"
             @move="moveCard"
             @drop="handleDrop"
+            @child-drop="handleChildDrop"
           />
           <BucketPanel
             :cards="state.cards"
@@ -325,6 +363,7 @@ function apply() {
             @toggle-modifier="toggleModifier"
             @move="moveCard"
             @drop="handleDrop"
+            @child-drop="handleChildDrop"
             @remove-source="removeSource"
           />
         </div>

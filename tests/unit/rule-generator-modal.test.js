@@ -51,7 +51,7 @@ describe('RuleGeneratorModal', () => {
     expect(text).toContain('🔧 前置修正');
     expect(text).toContain('🧩 灵活桶');
     expect(text).toContain('🛑 广告拦截');
-    expect(text).toContain('🌍 国外代理');
+    expect(text).toContain('🌍 国际代理');
     expect(text).toContain('🎯 全球直连');
     expect(text).toContain('🐟 漏网之鱼');
     expect(text).toContain('策略组');
@@ -75,7 +75,7 @@ describe('RuleGeneratorModal', () => {
       expect.stringContaining('🔧 前置修正'),
       expect.stringContaining('🧩 灵活桶'),
       expect.stringContaining('🛑 广告拦截'),
-      expect.stringContaining('🌍 国外代理'),
+      expect.stringContaining('🌍 国际代理'),
       expect.stringContaining('🎯 全球直连'),
       expect.stringContaining('🐟 漏网之鱼')
     ]);
@@ -236,12 +236,176 @@ describe('RuleGeneratorModal', () => {
     // 内置电报卡片被移空 → 整卡消失，且没有留下孤立的大卡片来源
     expect(wrapper.vm.state.cards.find(card => card.id === 'telegram')).toBeUndefined();
   });
+  it('小卡片拖进另一张大卡片的列表即改父，并跟到该大卡片所在的桶', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-ai', bucket: 'flexible' });
+    await wrapper.vm.$nextTick();
+
+    // 把「🎵 Spotify 声破天」（流媒体下）拖进「🤖 AI 服务」的小卡片列表
+    const spotify = wrapper.vm.state.cards.find(card => card.id === 'spotify');
+    wrapper.vm.handleChildDrop({ parentId: 'cat-ai', cards: [spotify] });
+    await wrapper.vm.$nextTick();
+
+    const moved = wrapper.vm.state.cards.find(card => card.id === 'spotify');
+    expect(moved.parentId).toBe('cat-ai');
+    expect(moved.bucket).toBe('flexible');
+
+    // 它的来源因此计入 🤖 AI 服务 这一个组，而不是自己成组
+    const { ini } = serializeState(wrapper.vm.state);
+    const groups = ini.split('\n')
+      .filter(line => line.startsWith('custom_proxy_group='))
+      .map(line => line.replace(/^custom_proxy_group=/, '').split('`')[0]);
+    expect(groups).toContain('🤖 AI 服务');
+    expect(groups).not.toContain('🎵 Spotify 声破天');
+    expect(ini).toContain('ruleset=🤖 AI 服务,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/Spotify.list');
+  });
+
+  it('大卡片被拖进小卡片列表时不变成小卡片，只跟着改桶', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-ai', bucket: 'proxy' });
+    await wrapper.vm.$nextTick();
+
+    const media = wrapper.vm.state.cards.find(card => card.id === 'cat-media');
+    wrapper.vm.handleChildDrop({ parentId: 'cat-ai', cards: [media] });
+    await wrapper.vm.$nextTick();
+
+    const moved = wrapper.vm.state.cards.find(card => card.id === 'cat-media');
+    expect(moved.parentId).toBeNull();      // 嵌套只有两层
+    expect(moved.bucket).toBe('proxy');
+    // 连带它自己的小卡片
+    expect(wrapper.vm.state.cards.find(card => card.id === 'youtube').bucket).toBe('proxy');
+  });
+
+  it('自定义规则集不填任何规则时创建一张空分组卡片', async () => {
+    const wrapper = mountModal();
+    const before = wrapper.vm.state.cards.length;
+
+    wrapper.vm.submitRuleset({ name: '🧺 我的分组', rows: [{ kind: 'remote', value: '  ' }] });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards).toHaveLength(before + 1);
+    const parent = wrapper.vm.state.cards[0];
+    expect(parent.name).toBe('🧺 我的分组');
+    expect(parent.parentId).toBeNull();
+    expect(parent.sources).toEqual([]);
+    expect(parent.bucket).toBe('off');
+
+    // 连名字都没有就不建 —— 空卡片没法称呼
+    wrapper.vm.submitRuleset({ name: '   ', rows: [] });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.state.cards).toHaveLength(before + 1);
+  });
+});
+
+describe('真实 vuedraggable 下的渲染', () => {
+  /**
+   * 其余用例把 vuedraggable 换成静态壳（它要真实 DOM 度量），代价是
+   * 「`#item` 插槽只能有一个节点」这类只有真组件才会抛的错整个测不到 ——
+   * 曾经就因此漏掉一次：插槽里多写了一行 HTML 注释，注释也算一个节点，
+   * 一拖动就抛 "Item slot must have only one child"。生产构建会把注释
+   * 编译掉，所以它只在 dev 现形。这里用真组件挂一次兜住这类回归。
+   */
+  it('两栏都能用真 draggable 挂载，插槽结构合法', () => {
+    const configured = createDefaultState();
+    configured.cards = applyRecommendedBuckets(configured.cards);
+
+    const wrapper = mount(RuleGeneratorModal, {
+      props: { show: true, content: serializeState(configured).ini },
+      global: {
+        plugins: [createPinia(), createI18n({ initialLocale: 'zh-CN' })],
+        stubs: { Modal: modalStub }
+      }
+    });
+
+    expect(wrapper.findComponent(BucketPanel).exists()).toBe(true);
+    expect(wrapper.findComponent(CardPalette).exists()).toBe(true);
+    // 大卡片渲染出来了；它的小卡片默认收起，所以此时不在 DOM 里
+    const ids = wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id);
+    expect(ids).toContain('cat-ai');
+    expect(ids).not.toContain('ai-openai');
+  });
+});
+
+describe('BucketPanel', () => {
+  const parent = {
+    id: 'p1', name: '🤖 AI 服务', parentId: null, origin: 'builtin',
+    bucket: 'flexible', order: 0, sources: []
+  };
+  const kid = {
+    id: 'c1', name: '🧠 OpenAI', parentId: 'p1', origin: 'builtin',
+    bucket: 'flexible', order: 0,
+    sources: [{ id: 's1', kind: 'remote', value: 'https://example.com/openai.list' }]
+  };
+
+  function mountPanel() {
+    return mount(BucketPanel, {
+      props: {
+        cards: [parent, kid],
+        headModifiers: { localAreaNetwork: true },
+        collapsed: { prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
+        dragEnabled: true,
+        moveOptions: []
+      },
+      global: {
+        plugins: [createI18n({ initialLocale: 'zh-CN' })],
+        stubs: { draggable: draggableStub }
+      }
+    });
+  }
+
+  /** 大卡片的展开钮：h-8 w-7 的方块按钮，段头那个是整行的。 */
+  function toggleOf(wrapper) {
+    return wrapper.findAll('button').find(button => ['▸', '▾'].includes(button.text()));
+  }
+
+  /** 大卡片自己的小卡片列表：靠 pl-7 缩进类认，其它 draggable 都没有它。 */
+  function childListOf(wrapper) {
+    return wrapper.findAllComponents(draggableStub).find(list => list.classes().includes('pl-7'));
+  }
+
+  it('大卡片默认收起，展开后小卡片各自是一张可拖动的卡片', async () => {
+    const wrapper = mountPanel();
+
+    // 收起时只有大卡片本体，但角标告诉你里面有几张
+    expect(wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id))
+      .toEqual(['p1']);
+    expect(wrapper.text()).toContain('1 张小卡片已收起');
+
+    await toggleOf(wrapper).trigger('click');
+
+    expect(wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id))
+      .toEqual(['p1', 'c1']);
+    expect(childListOf(wrapper).props('modelValue').map(card => card.id)).toEqual(['c1']);
+  });
+
+  it('小卡片列表落位后 emit child-drop，带上目标大卡片 id', async () => {
+    const wrapper = mountPanel();
+    await toggleOf(wrapper).trigger('click');
+
+    await childListOf(wrapper).vm.$emit('update:model-value', [kid]);
+
+    expect(wrapper.emitted('child-drop')).toEqual([[{ parentId: 'p1', cards: [kid] }]]);
+  });
+
+  it('往收起的大卡片里拖东西会自动展开 —— 否则卡片看着凭空消失', async () => {
+    const wrapper = mountPanel();
+
+    // 收起状态下列表给的是空数组，但仍然接放
+    expect(childListOf(wrapper).props('modelValue')).toEqual([]);
+    await childListOf(wrapper).vm.$emit('update:model-value', [kid]);
+
+    expect(wrapper.emitted('child-drop')).toEqual([[{ parentId: 'p1', cards: [kid] }]]);
+    expect(wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id))
+      .toEqual(['p1', 'c1']);
+  });
 });
 
 describe('CardPalette', () => {
-  function mountPalette() {
+  function mountPalette(dragEnabled = true) {
     return mount(CardPalette, {
-      props: { cards: createDefaultState().cards, dragEnabled: true, moveOptions: [] },
+      props: { cards: createDefaultState().cards, dragEnabled, moveOptions: [] },
       global: {
         plugins: [createI18n({ initialLocale: 'zh-CN' })],
         stubs: { draggable: draggableStub }
@@ -278,7 +442,26 @@ describe('CardPalette', () => {
 
     expect(text).toContain('💠 Gemini');
     expect(text).toContain('🤖 AI 服务');       // 命中项所在的集合仍可见
-    expect(text).not.toContain('📹 油管视频');   // 未命中的节不出现
+    expect(text).not.toContain('📹 YouTube 油管');   // 未命中的节不出现
+  });
+
+  it('尾部空白接放，等于「拖回左栏任意空处」；窄屏不渲染它', async () => {
+    const wrapper = mountPalette();
+
+    // 不再有任何可见的回收控件
+    expect(wrapper.text()).not.toContain('拖到这里');
+
+    const tail = wrapper.findAllComponents(draggableStub)
+      .find(list => list.classes().includes('flex-1'));
+    expect(tail).toBeTruthy();
+
+    const card = createDefaultState().cards.find(item => item.id === 'youtube');
+    await tail.vm.$emit('update:model-value', [card]);
+    expect(wrapper.emitted('drop')).toEqual([[{ bucket: 'off', cards: [card] }]]);
+
+    // 窄屏走「移到…」下拉，拖放整个不启用，这块空白也就没有意义
+    expect(mountPalette(false).findAllComponents(draggableStub)
+      .some(list => list.classes().includes('flex-1'))).toBe(false);
   });
 });
 
@@ -334,12 +517,18 @@ describe('RuleCardItem', () => {
     expect(empty.text()).toContain('没有规则卡片');
   });
 
-  it('窄屏降级时渲染「移到…」下拉', () => {
+  it('窄屏降级时渲染「移到…」下拉，且落在卡片右下角', () => {
     const wrapper = mountCard(child, {
       showMoveMenu: true,
+      showSources: true,
       moveOptions: [{ value: 'direct', label: '🎯 全球直连' }]
     });
     expect(wrapper.text()).toContain('移到…');
+
+    // 右对齐、且排在来源清单与备注之后 —— 手机上拇指最容易够到的位置
+    const holder = wrapper.find('select').element.parentElement;
+    expect(holder.className).toContain('justify-end');
+    expect(wrapper.element.lastElementChild).toBe(holder);
   });
 
   it('小卡片展开后可移除单条来源', async () => {
@@ -358,11 +547,29 @@ describe('RuleCardItem', () => {
     expect(wrapper.emitted('remove-source')).toEqual([['s1']]);
   });
 
-  it('大卡片展开后列出小卡片名', () => {
+  it('大卡片本体只显示小卡片数，小卡片由外层列表渲染', () => {
+    // 小卡片改由 CardPalette / BucketPanel 各自的可拖放列表渲染，
+    // 卡片本体不再内嵌一份只读清单 —— 否则同一张小卡片会出现两次
     const wrapper = mountCard(
       { ...child, id: 'p1', name: '🎬 流媒体', parentId: null, sources: [] },
-      { showSources: true, children: [{ ...child, name: '📹 油管视频' }] }
+      { showSources: true, children: [{ ...child, name: '📹 YouTube 油管' }] }
     );
-    expect(wrapper.text()).toContain('📹 油管视频');
+    expect(wrapper.text()).not.toContain('📹 YouTube 油管');
+    expect(wrapper.text()).toContain('1');
+  });
+
+  it('大卡片的展开钮长在卡片里，⋮⋮ 把手已移除', async () => {
+    const parentCard = { ...child, id: 'p1', parentId: null, sources: [] };
+    const wrapper = mountCard(parentCard, { expandable: true, children: [child] });
+
+    // 整张卡片都能拖之后把手没用了，反而挤掉一格宽度
+    expect(wrapper.text()).not.toContain('⋮⋮');
+    expect(wrapper.text()).toContain('▸');
+
+    await wrapper.find('button').trigger('click');
+    expect(wrapper.emitted('toggle')).toHaveLength(1);
+
+    // 小卡片没有展开钮
+    expect(mountCard(child).text()).not.toContain('▸');
   });
 });

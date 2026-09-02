@@ -5,7 +5,8 @@ import {
     createRegionConfigs,
     applyRecommendedBuckets,
     effectiveSources,
-    GROUP_NAMES
+    GROUP_NAMES,
+    STATE_HEADER_PREFIX
 } from '../../src/utils/rule-generator/catalog.js';
 import { serializeState } from '../../src/utils/rule-generator/serialize.js';
 import {
@@ -107,6 +108,23 @@ describe('rule-generator render matrix', () => {
         const output = render(ini, renderParams(name));
         expect(typeof output).toBe('string');
         expect(output.length).toBeGreaterThan(200);
+    });
+
+    it('往返注释头不进入任何目标格式的产物 —— 客户端订阅里看不到它', () => {
+        const { ini } = serializeState(richState());
+        const headerLine = ini.split('\n').find(line => line.startsWith(STATE_HEADER_PREFIX));
+        const payload = headerLine.slice(STATE_HEADER_PREFIX.length).trim();
+
+        expect(payload.length).toBeGreaterThan(100);   // 确实带着一大串 base64
+
+        RENDERERS.forEach(({ name, render }) => {
+            const output = render(ini, renderParams(name));
+            // ini-template-parser.js:10 跳过 `;` 行，注释根本没进模型，
+            // 六个渲染器又都是从模型重新拼产物，因此不可能透出去
+            expect(output, name).not.toContain(STATE_HEADER_PREFIX);
+            expect(output, name).not.toContain('misub-visual-state');
+            expect(output, name).not.toContain(payload.slice(0, 40));
+        });
     });
 
     it('clash：策略组无悬空引用，MATCH 末位，地区组存在（§验收 2 / 3 / 5）', () => {

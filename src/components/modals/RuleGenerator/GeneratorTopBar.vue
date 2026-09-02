@@ -1,9 +1,10 @@
 <script setup>
 /**
- * 顶栏：基础策略组勾选 + 地区面板 + 自定义规则集构建器 + why 文案。
+ * 顶栏：基础策略组勾选 + 地区面板 + 自定义规则集构建器。
  *
  * 只放不可拖动的东西。自定义规则集在这里拼好后整组提交为
  * 一张大卡片 + 每行一张小卡片，落到左栏候选区顶部，不直接进右侧桶。
+ * 一行规则都不填也能提交 —— 那是一张空的分组卡片，用来自己攒集合。
  */
 import { computed, ref } from 'vue';
 import { useI18n } from '@/i18n/index.js';
@@ -30,7 +31,6 @@ const BASE_TOGGLES = [
 ];
 
 const regionsOpen = ref(false);
-const whyOpen = ref(false);
 
 const namedRegions = computed(() => props.base.regions.filter(region => region.id !== OTHER_REGION_ID));
 const otherRegion = computed(() => props.base.regions.find(region => region.id === OTHER_REGION_ID));
@@ -47,7 +47,9 @@ function makeRow(kind = 'remote') {
 const draftName = ref('');
 const draftRows = ref([makeRow('remote')]);
 
-const canSubmit = computed(() => draftRows.value.some(row => String(row.value || '').trim()));
+const hasRows = computed(() => draftRows.value.some(row => String(row.value || '').trim()));
+/** 有规则就能提交；一条规则都没有时要求起个名字，否则空卡片没法称呼。 */
+const canSubmit = computed(() => hasRows.value || Boolean(draftName.value.trim()));
 
 function addRow(kind) {
   draftRows.value.push(makeRow(kind));
@@ -195,25 +197,14 @@ function submit() {
           @click="addRow('inline')"
           class="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/5"
         >{{ t('settings.ruleGenAddInline') }}</button>
+        <span v-if="!hasRows" class="text-[10px] text-gray-400">{{ t('settings.ruleGenEmptySetHint') }}</span>
         <button
           type="button"
           @click="submit"
           :disabled="!canSubmit"
           class="ml-auto rounded bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-40"
-        >{{ t('settings.ruleGenSubmitSet') }}</button>
+        >{{ hasRows ? t('settings.ruleGenSubmitSet') : t('settings.ruleGenSubmitEmptySet') }}</button>
       </div>
-    </div>
-
-    <!-- why 文案：面向小白用户，这类文案比功能本身更决定留存 -->
-    <div>
-      <button
-        type="button"
-        @click="whyOpen = !whyOpen"
-        class="text-[11px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
-      >{{ t('settings.ruleGenWhyTitle') }} {{ whyOpen ? '▴' : '▾' }}</button>
-      <p v-if="whyOpen" class="mt-1 rounded-lg bg-indigo-50/70 p-2 text-[11px] leading-relaxed text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-200">
-        {{ t('settings.ruleGenWhyBody') }}
-      </p>
     </div>
   </div>
 </template>

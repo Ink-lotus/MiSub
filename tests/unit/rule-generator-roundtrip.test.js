@@ -270,10 +270,10 @@ describe('rule-generator 反推：卡片不同名', () => {
     }
 
     it('组名撞上内置小卡片名时接管那张卡片，不另建同名用户卡片', () => {
-        // 旧默认模板的写法：组名与目录一致，URL 用的是 root 路径
-        const { state } = parseIniToState(iniWith(`ruleset=📲 电报消息,${ACL}/Telegram.list`));
+        // 旧默认模板的写法：组名与目录里某张卡片同名，URL 却是另一条
+        const { state } = parseIniToState(iniWith(`ruleset=📲 Telegram 电报,${ACL}/Telegram.list`));
 
-        const named = state.cards.filter(card => card.name === '📲 电报消息');
+        const named = state.cards.filter(card => card.name === '📲 Telegram 电报');
         expect(named).toHaveLength(1);
 
         // 接管的就是内置那张，且以正文为准换成正文里的 URL
@@ -286,8 +286,8 @@ describe('rule-generator 反推：卡片不同名', () => {
 
         // 组名原样还原
         const regenerated = serializeState(state, { includeHeader: false }).ini;
-        expect(regenerated).toContain(`ruleset=📲 电报消息,${ACL}/Telegram.list`);
-        expect(regenerated).toContain('custom_proxy_group=📲 电报消息`select`');
+        expect(regenerated).toContain(`ruleset=📲 Telegram 电报,${ACL}/Telegram.list`);
+        expect(regenerated).toContain('custom_proxy_group=📲 Telegram 电报`select`');
     });
 
     it('组名撞上内置大卡片名时接管大卡片，来源挂到它下面的小卡片上', () => {

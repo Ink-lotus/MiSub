@@ -4,9 +4,10 @@
  * 段顺序必须与 serialize.js 的 RULE_BUCKET_ORDER 一致。
  *
  * 段内只渲染**顶层**卡片：大卡片，或被单独拖出父卡片的小卡片。
- * 跟父卡片同桶的小卡片由父卡片代表，展开父卡片可看到它们。
+ * 大卡片下面挂一条自己的小卡片列表 —— 它是独立的可拖放列表，
+ * 因此小卡片在段内可以重排、也可以直接拖进另一张大卡片（改父）。
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import draggable from 'vuedraggable';
 import { useI18n } from '@/i18n/index.js';
 import { GROUP_NAMES, effectiveSources } from '@/utils/rule-generator/catalog.js';
@@ -24,8 +25,46 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  'toggle-collapse', 'toggle-modifier', 'move', 'drop', 'remove-source'
+  'toggle-collapse', 'toggle-modifier', 'move', 'drop', 'child-drop', 'remove-source'
 ]);
+
+/**
+ * 大卡片的小卡片列表**默认收起**，与左栏待选区一致：段里放进来的是集合，
+ * 一上来就摊开全部小卡片会把右栏撑得没法浏览。收起时列表仍然接放
+ * （`model-value` 给空数组，靠 emptyInsertThreshold 命中），放进去之后
+ * 自动展开 —— 否则卡片会像凭空消失。
+ */
+const expanded = ref(new Set());
+
+function isExpanded(cardId) {
+  return expanded.value.has(cardId);
+}
+
+function toggleCard(cardId) {
+  const next = new Set(expanded.value);
+  if (next.has(cardId)) next.delete(cardId); else next.add(cardId);
+  expanded.value = next;
+}
+
+function onChildDrop(parentId, cards) {
+  if (!expanded.value.has(parentId)) toggleCard(parentId);
+  emit('child-drop', { parentId, cards });
+}
+
+/** 与 CardPalette 保持同一套 SortableJS 选项，理由见那边的注释。 */
+const dragOptions = computed(() => ({
+  group: { name: 'rule-cards', pull: true, put: true },
+  disabled: !props.dragEnabled,
+  itemKey: 'id',
+  animation: 180,
+  filter: 'button, select, input, a, .no-drag',
+  preventOnFilter: false,
+  emptyInsertThreshold: 44,
+  scroll: true,
+  bubbleScroll: true,
+  scrollSensitivity: 90,
+  scrollSpeed: 14
+}));
 
 /** 六段。顺序即规则输出顺序。 */
 const SEGMENTS = [
@@ -69,8 +108,11 @@ const counts = computed(() => {
   return map;
 });
 
+/** 大卡片当前同桶的小卡片，按 order 排 —— 拖拽重写 order，不排就看不出变化。 */
 function childrenSameBucket(card) {
-  return props.cards.filter(item => item.parentId === card.id && item.bucket === card.bucket);
+  return props.cards
+    .filter(item => item.parentId === card.id && item.bucket === card.bucket)
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
 }
 
 function countFor(card) {
@@ -97,7 +139,7 @@ function isEmptyParent(card) {
         @click="emit('toggle-collapse', segment.bucket)"
         class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition hover:bg-gray-50 dark:hover:bg-white/5"
       >
-        <span class="text-[10px] text-gray-400">{{ collapsed[segment.bucket] ? '▸' : '▾' }}</span>
+        <span class="w-3 text-sm leading-none text-gray-400">{{ collapsed[segment.bucket] ? '▸' : '▾' }}</span>
         <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ t(segment.labelKey) }}</span>
 
         <span v-if="segment.locked" class="text-[10px] text-gray-400">🔒</span>
@@ -131,32 +173,71 @@ function isEmptyParent(card) {
 
         <draggable
           v-else
+          v-bind="dragOptions"
           :model-value="topLevelIn(segment.bucket)"
           @update:model-value="value => emit('drop', { bucket: segment.bucket, cards: value })"
-          :group="{ name: 'rule-cards', pull: true, put: true }"
-          :disabled="!dragEnabled"
-          item-key="id"
-          handle=".drag-handle"
-          animation="180"
-          class="min-h-[2.5rem] space-y-1.5"
+          class="min-h-[3.5rem] space-y-1.5"
         >
+          <!--
+            一个 item = 一张顶层卡片 +（大卡片时）它自己的小卡片列表。
+
+            注意：`#item` 插槽里**只能有一个节点**，注释也算一个 —— vuedraggable
+            会抛 "Item slot must have only one child"。而 Vue 只在 dev 构建里保留
+            注释节点，生产构建把它编译掉，所以这类错误只在 dev 现形。
+            因此说明文字一律写在插槽外面或那个根 div 里面。
+          -->
           <template #item="{ element }">
-            <RuleCardItem
-              :card="element"
-              :effective-count="countFor(element)"
-              :children="childrenSameBucket(element)"
-              :show-sources="Boolean(segment.showSources)"
-              :show-move-menu="!dragEnabled"
-              :move-options="moveOptions"
-              :conflicting="conflictingIds.has(element.id)"
-              :is-empty="isEmptyParent(element)"
-              @move="value => emit('move', { cardId: element.id, bucket: value })"
-              @move-child="payload => emit('move', payload)"
-              @remove-source="sourceId => emit('remove-source', { cardId: element.id, sourceId })"
-            />
+            <div :class="element.parentId === null ? 'rounded-lg border border-dashed border-gray-200 p-1.5 dark:border-gray-700' : ''">
+              <RuleCardItem
+                :card="element"
+                :effective-count="countFor(element)"
+                :children="childrenSameBucket(element)"
+                :expandable="element.parentId === null"
+                :expanded="isExpanded(element.id)"
+                :show-sources="Boolean(segment.showSources)"
+                :show-move-menu="!dragEnabled"
+                :move-options="moveOptions"
+                :conflicting="conflictingIds.has(element.id)"
+                :is-empty="isEmptyParent(element)"
+                @toggle="toggleCard(element.id)"
+                @move="value => emit('move', { cardId: element.id, bucket: value })"
+                @remove-source="sourceId => emit('remove-source', { cardId: element.id, sourceId })"
+              />
+
+              <!--
+                大卡片的小卡片列表。独立的可拖放列表：拖进来即改父，
+                因此小卡片可以在集合之间搬家，也能在集合内重排。
+                收起时给空数组 —— 列表照旧接放，放进来后 onChildDrop 自动展开。
+                缩进用 padding，好让可接放区域横跨整段宽度。
+              -->
+              <draggable
+                v-if="element.parentId === null"
+                v-bind="dragOptions"
+                :model-value="isExpanded(element.id) ? childrenSameBucket(element) : []"
+                @update:model-value="value => onChildDrop(element.id, value)"
+                class="mt-1 min-h-[2rem] space-y-1 pl-7"
+              >
+                <template #item="{ element: child }">
+                  <RuleCardItem
+                    :card="child"
+                    :effective-count="countFor(child)"
+                    :show-move-menu="!dragEnabled"
+                    :move-options="moveOptions"
+                    :conflicting="conflictingIds.has(child.id)"
+                    @move="value => emit('move', { cardId: child.id, bucket: value })"
+                  />
+                </template>
+                <template #footer>
+                  <p
+                    v-if="!isExpanded(element.id) && childrenSameBucket(element).length"
+                    class="px-1 py-1 text-[10px] text-gray-400"
+                  >{{ childrenSameBucket(element).length }} {{ t('settings.ruleGenCollapsedChildren') }}</p>
+                </template>
+              </draggable>
+            </div>
           </template>
           <template #footer>
-            <p v-if="!counts[segment.bucket]" class="py-2 text-center text-[10px] text-gray-300 dark:text-gray-600">
+            <p v-if="!counts[segment.bucket]" class="py-3 text-center text-[10px] text-gray-300 dark:text-gray-600">
               {{ t('settings.ruleGenDropHere') }}
             </p>
           </template>
