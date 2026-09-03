@@ -78,25 +78,34 @@ export function filterValidDnsTemplateFields(template = {}) {
     }));
 }
 
+/** validatePolicyRecord 的告警类型 */
+export const DNS_POLICY_WARNING_CODES = Object.freeze({
+    INVALID_MODE: 'invalidMode',
+    DROPPED_RESOLVER: 'droppedResolver'
+});
+
+export const DNS_POLICY_RESOLVER_FIELDS = ['domestic', 'foreign', 'polluted'];
+
 /**
  * 校验策略模式（kind: 'policy'）的 policy 字段。
- * 返回 { valid: boolean, warnings: string[] }。
- * 所有问题均作为 warn 级别（不硬拦保存），回环/全零地址才警告，局域网地址放行。
+ *
+ * 返回 { valid: true, warnings: Array<{ code, field?, value }> }。
+ * 刻意返回结构化 code 而不是成品文案：本模块被前端直接 import，
+ * 在这里拼中文会绕过 i18n，英文界面上就会露出中文。文案由调用方按 code 取。
+ *
+ * 全部是 warn 级别，不拦保存。只标回环/全零与不支持的 scheme，局域网地址放行。
  */
 export function validatePolicyRecord(policy = {}) {
     const warnings = [];
 
-    // mode
     if (policy.mode !== undefined) {
         const m = String(policy.mode).trim().toLowerCase();
         if (m !== DNS_MODES.CLEAN && m !== DNS_MODES.POLLUTED) {
-            warnings.push(`mode 无效值 "${policy.mode}"，将回落为 clean`);
+            warnings.push({ code: DNS_POLICY_WARNING_CODES.INVALID_MODE, value: String(policy.mode) });
         }
     }
 
-    // 校验解析器列表字段
-    const resolverFields = ['domestic', 'foreign', 'polluted'];
-    for (const field of resolverFields) {
+    for (const field of DNS_POLICY_RESOLVER_FIELDS) {
         if (policy[field] === undefined) continue;
         const values = Array.isArray(policy[field])
             ? policy[field]
@@ -104,9 +113,10 @@ export function validatePolicyRecord(policy = {}) {
 
         for (const v of values) {
             if (!v || v === 'system') continue;
-            const validated = resolverHost(v);
-            if (validated === '') {
-                warnings.push(`${field} 包含无效或不安全的地址 "${v}"（回环/全零/非法 scheme）`);
+            if (resolverHost(v) === '') {
+                // 策略模式下 resolverList() 会把这些地址过滤掉，其余照用；
+                // 整组都被过滤光才回落 DEFAULT_DNS_POLICY。
+                warnings.push({ code: DNS_POLICY_WARNING_CODES.DROPPED_RESOLVER, field, value: String(v) });
             }
         }
     }

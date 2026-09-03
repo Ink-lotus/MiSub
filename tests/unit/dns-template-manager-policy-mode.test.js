@@ -83,7 +83,21 @@ describe('DNS 模板策略模式 UI', () => {
 
     const warnings = wrapper.get('[data-dns-policy-warnings]').text();
     expect(warnings).toContain('127.0.0.1');
+    expect(warnings).toContain('会被忽略');
     expect(warnings).not.toContain('地址均可用');
+  });
+
+  it('策略告警走 i18n，英文界面不露中文', async () => {
+    const wrapper = mount(DnsTemplateManager, {
+      global: { plugins: [pinia, createI18n({ initialLocale: 'en' })] }
+    });
+    await wrapper.get('[data-dns-kind="policy"]').trigger('click');
+    await wrapper.get('[data-dns-policy-field="domestic"]').setValue('127.0.0.1');
+
+    const warnings = wrapper.get('[data-dns-policy-warnings]').text();
+    expect(warnings).toContain('127.0.0.1');
+    expect(warnings).toContain('will be ignored');
+    expect(warnings).not.toMatch(/[一-龥]/);
   });
 
   it('局域网地址不产生告警', async () => {

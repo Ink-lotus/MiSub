@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
-import { validateDnsTemplate, validatePolicyRecord, validateDnsTemplateResolvers } from '../../../../../shared/dns-template-validation.js';
+import { validateDnsTemplate, validatePolicyRecord, validateDnsTemplateResolvers, DNS_POLICY_WARNING_CODES } from '../../../../../shared/dns-template-validation.js';
 
 const { t } = useI18n();
 
@@ -71,6 +71,22 @@ const visibleDnsFields = computed(() => (
 const policyWarnings = computed(() => (
   isPolicyMode.value ? validatePolicyRecord(selectedTemplate.value?.policy || {}).warnings : []
 ));
+
+// validatePolicyRecord 只回 code，文案在这里按 code 取，保证中英一致
+const policyWarningKeys = {
+  [DNS_POLICY_WARNING_CODES.INVALID_MODE]: 'settings.dnsPolicyWarnInvalidMode',
+  [DNS_POLICY_WARNING_CODES.DROPPED_RESOLVER]: 'settings.dnsPolicyWarnDroppedResolver'
+};
+
+function policyWarningText(warning) {
+  const messageKey = policyWarningKeys[warning?.code];
+  if (!messageKey) return '';
+  const fieldEntry = policyResolverFields.find(item => item.key === warning.field);
+  return t(messageKey, {
+    value: warning.value ?? '',
+    field: fieldEntry ? t(fieldEntry.labelKey) : (warning.field || '')
+  });
+}
 
 // 手写字段里的回环/全零地址提示；纯 warn，不影响 status 与运行时取值
 const resolverWarnings = computed(() => validateDnsTemplateResolvers(selectedTemplate.value || {}));
@@ -367,7 +383,7 @@ async function saveTemplates() {
             <span class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('settings.dnsPolicyWarningsTitle') }}</span>
             <p v-if="!policyWarnings.length" class="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">{{ t('settings.dnsPolicyNoWarnings') }}</p>
             <ul v-else class="mt-1 space-y-0.5">
-              <li v-for="(warning, index) in policyWarnings" :key="index" class="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">{{ warning }}</li>
+              <li v-for="(warning, index) in policyWarnings" :key="index" class="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">{{ policyWarningText(warning) }}</li>
             </ul>
           </div>
         </div>

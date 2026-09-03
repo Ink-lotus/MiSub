@@ -131,26 +131,30 @@ describe('safe-dns 引擎：地址语义校验 resolverHost', () => {
 });
 
 describe('validatePolicyRecord：策略字段校验为 warn 级', () => {
-    it('回环地址给出警告但不拦保存', () => {
+    it('回环地址给出结构化告警但不拦保存', () => {
         const r = validatePolicyRecord({ domestic: ['127.0.0.1'] });
         expect(r.valid).toBe(true);
-        expect(r.warnings).toHaveLength(1);
-        expect(r.warnings[0]).toContain('127.0.0.1');
+        expect(r.warnings).toEqual([
+            { code: 'droppedResolver', field: 'domestic', value: '127.0.0.1' }
+        ]);
     });
 
-    it('非法 scheme 给出警告', () => {
+    it('非法 scheme 给出告警', () => {
         const r = validatePolicyRecord({ foreign: ['ftp://1.1.1.1'] });
         expect(r.valid).toBe(true);
-        expect(r.warnings[0]).toContain('ftp://1.1.1.1');
+        expect(r.warnings).toEqual([
+            { code: 'droppedResolver', field: 'foreign', value: 'ftp://1.1.1.1' }
+        ]);
     });
 
     it('局域网地址不告警——自由度是我们的卖点', () => {
         expect(validatePolicyRecord({ domestic: ['192.168.1.1'] }).warnings).toEqual([]);
     });
 
-    it('mode 非法值给出警告并说明回落 clean', () => {
-        const r = validatePolicyRecord({ mode: 'weird' });
-        expect(r.warnings[0]).toContain('clean');
+    it('mode 非法值给出 invalidMode 告警', () => {
+        expect(validatePolicyRecord({ mode: 'weird' }).warnings).toEqual([
+            { code: 'invalidMode', value: 'weird' }
+        ]);
     });
 
     it('空策略不告警（引擎会回落默认）', () => {
@@ -159,12 +163,18 @@ describe('validatePolicyRecord：策略字段校验为 warn 级', () => {
 
     it('逗号分隔字符串同样逐项校验', () => {
         const r = validatePolicyRecord({ domestic: '223.5.5.5, 127.0.0.1' });
-        expect(r.warnings).toHaveLength(1);
-        expect(r.warnings[0]).toContain('127.0.0.1');
+        expect(r.warnings).toEqual([
+            { code: 'droppedResolver', field: 'domestic', value: '127.0.0.1' }
+        ]);
     });
 
     it('system 视为合法，不告警', () => {
         expect(validatePolicyRecord({ domestic: ['system'] }).warnings).toEqual([]);
+    });
+
+    it('不在 shared 模块里拼成品文案，避免绕过 i18n', () => {
+        const r = validatePolicyRecord({ mode: 'weird', domestic: ['127.0.0.1'] });
+        expect(r.warnings.every(w => typeof w === 'object' && typeof w.code === 'string')).toBe(true);
     });
 });
 
