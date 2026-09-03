@@ -23,6 +23,19 @@
   // 实际文件在 .wrangler/state/v3/kv/。
   "kv_namespaces": [
     { "binding": "MISUB_KV", "id": "MISUB_KV" }
+  ],
+
+  // 本地 D1 绑定。生产已经从 KV 迁到 D1 并删掉了 KV 绑定，本地两个都绑才能
+  // 覆盖两条存储路径：默认 storageType 是 'kv'（config.js:35），走
+  // POST /api/migrate_to_d1 之后置为 'd1'，与生产一致。
+  // 建表是 CREATE TABLE IF NOT EXISTS（storage-adapter.js:21），本地自举，
+  // 但只在 DataMigrator 里触发，所以新库要跑一次迁移接口才有表。
+  //
+  // database_id 是本地占位值，miniflare 只用它定位本地 SQLite 文件。
+  // 绝对不要填生产库的真实 UUID（那个在 .wrangler/cf-downloaded-config.toml 里），
+  // 填了在某些模式下会去连真库。
+  "d1_databases": [
+    { "binding": "MISUB_DB", "database_name": "MISUB_DB", "database_id": "MISUB_DB" }
   ]
 
   // 刻意不写 pages_build_output_dir —— 加上它会让 Cloudflare Pages
