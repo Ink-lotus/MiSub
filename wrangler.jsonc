@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "misub",
+
+  // 钉死兼容性日期，不要交给 wrangler 的「用当天日期」兜底。
+  //
+  // 兼容性标志是编译进 workerd 二进制的：装的那份 workerd 构建于哪天，
+  // 就只认到那之后一小段时间的 compat date。没有本文件时 wrangler 退回当天日期，
+  // 二进制放旧几个月后当天日期就越过上限，`wrangler pages dev` 直接起不来：
+  //   X [ERROR] This Worker requires compatibility date "<今天>",
+  //             but the newest date supported by this server binary is "<上限>".
+  // 取值沿用仓库原先在 wrangler-cf-pages.toml 里声明的日期。
+  // 若 Cloudflare Pages 面板设的是更新的日期或 "Latest"，改这里与之对齐；
+  // 但不得超过当前 workerd 支持的上限，否则本地又起不来。
+  "compatibility_date": "2024-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // 本地 KV 绑定。没有它 StorageFactory.resolveKV 返回 null，
+  // 整个后端退化成 NoopStorageAdapter：写入静默丢弃、重启即空，
+  // 保存/刷新之类的功能在本地根本没法验。
+  // id 在 local 模式下只用来定位本地持久化目录，不会去连远端命名空间；
+  // 取 "MISUB_KV" 是为了对上历史上用 `--kv MISUB_KV` 跑出来的那份数据，
+  // 实际文件在 .wrangler/state/v3/kv/。
+  "kv_namespaces": [
+    { "binding": "MISUB_KV", "id": "MISUB_KV" }
+  ]
+
+  // 刻意不写 pages_build_output_dir —— 加上它会让 Cloudflare Pages
+  // 把本文件当成生产配置的唯一来源，面板里现有的 KV / D1 绑定与环境变量
+  // 将不再合并进部署，上面那个占位 id 也会被当真。
+  // 本文件只服务本地开发，生产配置继续以面板为准。
+  // 参见 https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+  //   "You can continue to use your Wrangler file for local development
+  //    without migrating it for production use by not adding a
+  //    pages_build_output_dir key."
+}
