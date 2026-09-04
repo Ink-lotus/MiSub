@@ -3,9 +3,9 @@
 **状态**：F1 / F2 / F3 已实施完毕（2026-09-04），阶段二整合上游待执行。**开工前先读第九节**。
 
 **核实基准**：
-- 本文 1.0 版写于 `4fec2e6`（2026-09-02）；1.1 版更新于 `befd062`（2026-09-04）
+- 本文 1.0 版写于 `4fec2e6`（2026-09-02）；1.1 / 1.2 版更新于 `e83d502` 之后（2026-09-04）
 - 上游 `imzyb/MiSub` main = `1008b7c`（2026-09-02 00:37），已通过 `git remote add upstream` 接回
-- 截至 1.1 版：上游领先我们 97 个提交，我们领先上游 23 个提交，**20 个文件双方都改过**（见 9.2）
+- 截至 1.2 版：上游领先我们 97 个提交，我们领先上游 23 个提交，**20 个文件双方都改过**（见 9.2）
 - 本文所有断言都标了 `文件:行号`，上游侧可用 `git show upstream/main:<path>` 复核
 
 ## 一、一句话结论
@@ -241,12 +241,47 @@ if (isVirtualInfoNode) return false;
 | `src/constants/default-settings.js` | 前端默认值，需与后端 `config.js` 对齐 |
 | `src/i18n/messages.js` | 文案，冲突多但语义简单，逐条挑即可 |
 | `tests/unit/builtin-{clash,singbox,surge,loon}-generator.test.js` | 四个生成器的测试，断言口径两侧不同 |
-| `wrangler-cf-pages.toml` | **我们已删除**，上游仍保留；合并时确认不要被带回来 |
+| `wrangler-cf-pages.toml` | **我们已删除，上游已修好**——不是简单的「别带回来」，见 9.3 |
 
 比 1.0 版记录的 18 个多了两个：`functions/storage-adapter.js`（我们的迁移器修复）
 和 `wrangler-cf-pages.toml`（我们已删）。
 
-### 9.3 已实施部分的落点，供整合时定位
+### 9.3 `wrangler-cf-pages.toml`：上游已自行修复，需主动取舍
+
+删除它时（提交 `470e37e`）给的两条理由，其中一条在上游那边**已经不成立**。
+
+**我们删掉的是旧版本。** 那份有两个缺陷：文件名不被 wrangler 自动识别（只认
+`wrangler.toml` / `.json` / `.jsonc`），以及本身不是合法 TOML——根层级 `main` 与
+`compatibility_date` 各重复一次、`[env.production]` 的 `vars` 写成跨行内联表。
+用 Python `tomllib` 实测 `Cannot overwrite a value (at line 12)`。
+
+**上游已在 `f523295 fix: make Pages Wrangler config valid` 修掉语法问题**，
+现在只剩四个有效键，`tomllib` 解析通过：
+
+```toml
+name = "misub"
+pages_build_output_dir = "./dist"
+compatibility_date = "2024-04-01"
+compatibility_flags = ["nodejs_compat"]
+```
+
+`f523295` 就在待整合的 97 个提交里。所以合并时的正确动作是**主动决定要不要接受
+这个修复版**，而不是当成噪声排除掉。
+
+**仍然存在的落差**：文件名依旧不规范，`wrangler pages dev` 本地读不到它。上游
+`package.json` 里 wrangler 是 `^4.56.0`、`dev:server` 不带任何参数，条件与我们
+当初踩坑时相同——workerd 二进制放旧几个月后，当天日期越过 compat date 上限，
+本地 dev 直接起不来。这属于「设计意图与实际效果的落差」而非明确 bug，且修法涉及
+只有维护者能定的取舍：改名成 `wrangler.toml` 会让 Pages 拿它当生产配置唯一来源，
+面板里的 KV / D1 绑定与环境变量就不再合并进部署。因此**不向上游提这一条**。
+
+**两者可以共存**：上游那份带 `pages_build_output_dir`，记录的是 Pages 部署意图；
+我们的 `wrangler.jsonc` 刻意不带该键，只服务本地开发（含 KV + D1 绑定、compat
+date 对齐生产的 `2026-07-20`）。整合时建议把上游那份接回来当部署文档，本地行为
+继续由 `wrangler.jsonc` 决定。注意两份文件的 `compatibility_date` 会不一致
+（上游 `2024-04-01` vs 我们 `2026-07-20`，后者对齐面板实际值），这是预期的。
+
+### 9.4 已实施部分的落点，供整合时定位
 
 | 阶段 | 落点 |
 |---|---|
@@ -285,7 +320,11 @@ if (isVirtualInfoNode) return false;
 
 ---
 
-**文档版本**：1.1
+**文档版本**：1.2
 **最后更新**：2026-09-04
 **状态**：F1 / F2 / F3 已实施完毕并通过复核（120 files / 785 tests 全绿）。
 阶段二「整合上游 97 个提交」待另起会话执行，开工前先读第九节。
+
+**1.2 变更**：补 9.3 —— 核对后发现 `wrangler-cf-pages.toml` 的 TOML 语法问题上游
+已在 `f523295` 自行修复，我们删掉的是旧版本。原先「上游仍保留、合并时别带回来」
+的判断需要修正为「主动决定是否接受上游的修复版」。
