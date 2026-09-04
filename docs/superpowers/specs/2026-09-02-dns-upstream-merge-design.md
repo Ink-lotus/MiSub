@@ -1,11 +1,11 @@
 # DNS 方案：上游对照、融合设计与上游 PR 计划
 
-**状态**：分析与设计，**尚未实施任何代码改动**。等待决策，决策点集中在第七、八节。
+**状态**：F1 / F2 / F3 已实施完毕（2026-09-04），阶段二整合上游待执行。**开工前先读第九节**。
 
 **核实基准**：
-- 本地 `main` = `4fec2e6`（2026-09-02）
+- 本文 1.0 版写于 `4fec2e6`（2026-09-02）；1.1 版更新于 `befd062`（2026-09-04）
 - 上游 `imzyb/MiSub` main = `1008b7c`（2026-09-02 00:37），已通过 `git remote add upstream` 接回
-- 共同祖先 `318b87d`（2025-06-17）；此后本地独有 1529 个提交、上游独有 1620 个提交，142 个文件有内容差异
+- 截至 1.1 版：上游领先我们 97 个提交，我们领先上游 23 个提交，**20 个文件双方都改过**（见 9.2）
 - 本文所有断言都标了 `文件:行号`，上游侧可用 `git show upstream/main:<path>` 复核
 
 ## 一、一句话结论
@@ -180,7 +180,86 @@ git push origin feat/dns-override-surge-loon-quanx
 
 推分支到远端、开 PR 都是对外动作。**执行前需要你明确点头**，届时我会先把 diff 给你过一遍。
 
-## 九、待决策清单
+## 九、阶段二交接：整合上游前必读
+
+> 本节于 2026-09-04 追加。第六节的 F1 / F2 / F3 已全部实施完毕（含前端与测试），
+> 阶段二「整合上游 97 个提交」尚未开始，计划另起会话执行。以下是那个会话需要
+> 先知道的两件事，以及重新核实过的冲突面。
+
+### 9.1 上游 main 自带一条红灯测试
+
+在**纯净的** `upstream/main`（`1008b7c`，不含我们任何改动）上运行测试即已失败：
+
+```
+FAIL  tests/unit/node-transformer.test.js
+      > removes useless info nodes when useless filter is enabled
+AssertionError: expected [ …(4) ] to have a length of 3 but got 4
+```
+
+成因是上游自己的 `b477c8b`（2026-08-29「添加放行系统虚拟信息节点」）给
+`functions/utils/node-transformer.js` 的 `isUselessNode` 加了放行分支：
+
+```js
+const isVirtualInfoNode = protocol === 'trojan'
+    && server === '127.0.0.1'
+    && Number(record?.port) === 443
+    && String(record?.url || '').includes(`trojan://${VIRTUAL_INFO_NODE_UUID}@127.0.0.1:443#`)
+    && /(?:流量剩余|到期时间|您的订阅已到期)/.test(name);
+
+if (isVirtualInfoNode) return false;
+```
+
+流量剩余 / 到期时间这类虚拟信息节点从此不再被 useless 过滤器剔除，但
+`node-transformer.test.js:81` 仍断言旧行为（应剩 3 条）。功能改了、测试没跟。
+
+**验证方式**：`git checkout --detach upstream/main` 后单跑该测试文件即可复现。
+
+**对阶段二的影响**：合上游后我们会继承这条失败。需要决定是顺手改测试断言
+（`toHaveLength(3)` → `4`，并调整后两条 `not.toContain` 断言），还是保留红灯
+等上游自己处理。倾向顺手改掉——否则我们的 CI 会一直是红的，掩盖真实回归。
+若改了，值得单独提一个小 PR 回馈上游。
+
+### 9.2 双方都改过的文件：20 个（已重新核实）
+
+以 `git merge-base main upstream/main` 为基准，两侧各自改动过的文件交集：
+
+| 文件 | 冲突性质 |
+|---|---|
+| `functions/modules/subscription/builtin-clash-generator.js` | 上游 DNS 策略注入 vs 我们的 `customDns` 内联 |
+| `functions/modules/subscription/builtin-singbox-generator.js` | 同上 |
+| `functions/modules/subscription/builtin-surge-generator.js` | 上游改 dns-server 行 vs 我们的 `customDns.surge` |
+| `functions/modules/subscription/builtin-loon-generator.js` | 同上，且上游加了 anytls 支持 |
+| `functions/modules/subscription/template-renderers/render-clash.js` | 上游 `resolveSafeDnsConfig` 注入点 vs 我们的模板路径回炉 |
+| `functions/modules/subscription/template-renderers/render-loon.js` | 同上 |
+| `functions/modules/subscription/template-renderers/render-surge.js` | 同上 |
+| `functions/modules/subscription/main-handler.js` | 订阅主流程，两侧都动过 |
+| `functions/services/processor-service.js` | 我们的 `applyCustomDnsToBuiltinPreset` 所在处 |
+| `functions/storage-adapter.js` | **我们刚改过迁移器**，上游也动过 D1 相关 |
+| `functions/modules/api-handler.js` | 设置保存与双存储同步 |
+| `functions/modules/config.js` | 默认设置 |
+| `functions/modules/webdav-backup-handler.js` | 备份范围 |
+| `src/constants/default-settings.js` | 前端默认值，需与后端 `config.js` 对齐 |
+| `src/i18n/messages.js` | 文案，冲突多但语义简单，逐条挑即可 |
+| `tests/unit/builtin-{clash,singbox,surge,loon}-generator.test.js` | 四个生成器的测试，断言口径两侧不同 |
+| `wrangler-cf-pages.toml` | **我们已删除**，上游仍保留；合并时确认不要被带回来 |
+
+比 1.0 版记录的 18 个多了两个：`functions/storage-adapter.js`（我们的迁移器修复）
+和 `wrangler-cf-pages.toml`（我们已删）。
+
+### 9.3 已实施部分的落点，供整合时定位
+
+| 阶段 | 落点 |
+|---|---|
+| F1 地址提示 | `shared/dns-template-validation.js` 的 `collectResolverWarnings` / `isLoopbackResolver`；UI 在 `DnsTemplateManager.vue` |
+| F2 quanx 段替换 | `functions/services/processor-service.js` 的 quanx 分支正则（改用负向前瞻） |
+| F3 策略引擎 | **新增** `shared/safe-dns.js`（改造自上游 `functions/modules/subscription/safe-dns.js`，按方案 A 去掉 `#🌐 DNS 出口` 后缀与 sing-box `detour`） |
+| F3 数据模型 | `functions/modules/dns-template-handler.js` 的 `kind` 字段与 `resolveEffectiveDnsConfig` 策略分支 |
+| F3 前端 | `DnsTemplateManager.vue` 双模开关 + 策略面板 |
+
+**特别注意**：`shared/safe-dns.js` 是上游 `safe-dns.js` 的改造拷贝，不会自动跟随
+上游更新。整合时必须人工 diff 一次上游那份，把他们后续的修复挑进来。
+
+## 十、待决策清单
 
 | # | 问题 | 我的建议 |
 |---|---|---|
@@ -191,7 +270,11 @@ git push origin feat/dns-override-surge-loon-quanx
 | 5 | 要不要顺带把上游的 `anytls` 协议转换器拿过来 | 与 DNS 无关，另开一轮 |
 | 6 | F4 的 PR 是否真的要提 | 由你定；技术上 F3 完成即可提 |
 
-## 十、风险
+**2026-09-04 更新**：1 / 2 / 3 / 4 已定并落地（warn 且只拦回环全零；方案 A；
+放 `shared/`；同模板内二选一）。5 仍未做——上游的 anytls 支持在 `fbb3b27`、
+`168da32` 两个提交里，会随阶段二一并进来。6 由你定。
+
+## 十一、风险
 
 | 风险 | 说明 |
 |---|---|
@@ -202,6 +285,7 @@ git push origin feat/dns-override-surge-loon-quanx
 
 ---
 
-**文档版本**：1.0
-**最后更新**：2026-09-02
-**状态**：待决策。第九节 6 个问题定了之后再开工，F1 / F2 可以先做。
+**文档版本**：1.1
+**最后更新**：2026-09-04
+**状态**：F1 / F2 / F3 已实施完毕并通过复核（120 files / 785 tests 全绿）。
+阶段二「整合上游 97 个提交」待另起会话执行，开工前先读第九节。
