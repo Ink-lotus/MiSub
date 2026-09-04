@@ -24,9 +24,19 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  searchable: { type: Boolean, default: false },
+  searchQuery: { type: String, default: '' },
+  filteredCount: { type: Number, default: undefined },
 });
 
-const emit = defineEmits(['add', 'edit', 'delete', 'deleteAll', 'toggle', 'openCopy', 'preview', 'reorder', 'changePage', 'viewLogs', 'qrcode', 'toggle-sort']);
+const emit = defineEmits(['add', 'edit', 'delete', 'deleteAll', 'toggle', 'openCopy', 'preview', 'reorder', 'changePage', 'viewLogs', 'qrcode', 'toggle-sort', 'updateSearch']);
+
+const searchModel = computed({
+  get: () => props.searchQuery,
+  set: value => emit('updateSearch', value)
+});
+
+const visibleCount = computed(() => props.filteredCount ?? props.profiles.length);
 
 const displayProfiles = computed(() => {
   if (props.isSorting) {
@@ -94,6 +104,24 @@ const handleMoveDown = (profileId) => {
             </MoreActionsMenu>
           </div>
         </div>
+        <div v-if="searchable" class="relative mt-4">
+          <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            v-model="searchModel"
+            data-testid="profile-search"
+            type="search"
+            :placeholder="t('profiles.listSearchPlaceholder')"
+            :aria-label="t('profiles.searchPlaceholder')"
+            :disabled="isSorting"
+            class="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-20 text-sm text-gray-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-500"
+          />
+          <span v-if="searchQuery" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+            {{ visibleCount }}/{{ profiles.length }}
+          </span>
+        </div>
       </div>
     </div>
     <div v-if="profiles.length > 0">
@@ -123,12 +151,18 @@ const handleMoveDown = (profileId) => {
           />
         </div>
       </div>
+      <div v-if="!isSorting && displayProfiles.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 px-6 py-12 text-center dark:border-gray-700 dark:bg-gray-900/50">
+        <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('profiles.noSearchResults') }}</p>
+        <button type="button" class="mt-3 text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400" @click="searchModel = ''">
+          {{ t('actions.clearSearch') }}
+        </button>
+      </div>
       <PanelPagination
         v-if="!isSorting && totalPages > 1 && paginatedProfiles && paginatedProfiles.length > 0"
         variant="panel"
         :current-page="currentPage"
         :total-pages="totalPages"
-        :total-items="profiles.length"
+        :total-items="visibleCount"
         :show-total-items="true"
         @change-page="handleChangePage"
       />

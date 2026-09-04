@@ -9,6 +9,7 @@ import { createJsonResponse, createErrorResponse, JSON_BODY_LIMITS, readJsonWith
 import { parseNodeList } from '../utils/node-parser.js';
 import { getProcessedUserAgent } from '../../utils/format-utils.js';
 import { buildFetchProxyUrl } from '../../utils/fetch-proxy-utils.js';
+import { isSuspiciousNodeCountDrop } from '../../services/node-cache-service.js';
 
 // 创建用于全局匹配的协议正则表达式
 const NODE_PROTOCOL_GLOBAL_REGEX = new RegExp('^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5|socks):\\/\\/', 'gm');
@@ -362,10 +363,30 @@ export async function handleNodeCountRequest(request, env) {
                 const subToUpdate = originalSubs.find(s => s.url === subUrl);
 
                 if (subToUpdate) {
+                    const knownNodeCount = Math.max(
+                        Number(subToUpdate.lastGoodNodeCount) || 0,
+                        Number(subToUpdate.nodeCount) || 0
+                    );
+
+                    // This endpoint is also called automatically while loading a subscription
+                    // group. A truncated Base64 prefix may still parse as one node, so preserve
+                    // the last healthy count instead of destroying the shrink-protection baseline.
+                    if (isSuspiciousNodeCountDrop(knownNodeCount, result.count)) {
+                        console.warn(`[Node Count] Rejecting suspicious node-count drop for ${subUrl} (${knownNodeCount} known -> ${result.count} fetched)`);
+                        result.count = knownNodeCount;
+                        result.protected = true;
+                        result.lastGoodNodeCount = knownNodeCount;
+                        return createJsonResponse({
+                            success: true,
+                            data: result
+                        });
+                    }
+
                     if (typeof storageAdapter.updateSubscriptionById === 'function') {
                         await storageAdapter.updateSubscriptionById(subToUpdate.id, current => ({
                             ...current,
                             nodeCount: result.count,
+                            ...(result.count >= 10 ? { lastGoodNodeCount: result.count } : {}),
                             userInfo: result.userInfo,
                             lastError: null,
                             lastUpdate: new Date().toISOString()
@@ -375,6 +396,7 @@ export async function handleNodeCountRequest(request, env) {
                         const target = allSubs.find(s => s.url === subUrl);
                         if (target) {
                             target.nodeCount = result.count;
+                            if (result.count >= 10) target.lastGoodNodeCount = result.count;
                             target.userInfo = result.userInfo;
                             target.lastError = null;
                             target.lastUpdate = new Date().toISOString();

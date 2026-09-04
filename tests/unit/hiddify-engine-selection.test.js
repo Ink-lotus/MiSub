@@ -11,11 +11,11 @@ import {
 const hiddifyUa = 'HiddifyNext/4.1.1 (android) like ClashMeta v2ray sing-box';
 
 describe('Hiddify subscription compatibility', () => {
-    it('detects Hiddify clients as Clash-compatible by default', () => {
+    it('detects Hiddify clients as sing-box-compatible by default', () => {
         const params = new URLSearchParams('');
 
         expect(isHiddifyAgent(hiddifyUa)).toBe(true);
-        expect(determineTargetFormat(hiddifyUa, params)).toBe('clash');
+        expect(determineTargetFormat(hiddifyUa, params)).toBe('singbox');
     });
 
     it('forces automatic Hiddify requests to builtin engine even when global default is external', () => {

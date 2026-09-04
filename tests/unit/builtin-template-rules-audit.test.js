@@ -4,6 +4,7 @@ import { parseIniTemplate } from '../../functions/modules/subscription/template-
 import { applySmartModelOptimizations } from '../../functions/modules/subscription/template-processor.js';
 import { TRANSFORM_ASSETS } from '../../src/constants/transform-assets.js';
 import { getBuiltinRules, getRemoteProviderDefinitions, REMOTE_SOURCES } from '../../functions/modules/subscription/builtin-rules-provider.js';
+import { DNS_PROXY_GROUP } from '../../functions/modules/subscription/safe-dns.js';
 import { generateBuiltinSingboxConfig } from '../../functions/modules/subscription/builtin-singbox-generator.js';
 import { renderClashFromTemplateModel } from '../../functions/modules/subscription/template-renderers/render-clash.js';
 import { renderSingboxFromTemplateModel } from '../../functions/modules/subscription/template-renderers/render-singbox.js';
@@ -123,7 +124,7 @@ describe('Builtin template rule audit', () => {
         const rawRules = getBuiltinRules('FULL', 'singbox');
         const providers = getRemoteProviderDefinitions('singbox', rawRules);
 
-        expect(REMOTE_SOURCES.ADS.singbox).toBe('https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs');
+        expect(REMOTE_SOURCES.ADS.singbox).toMatch(/\/0adeef8a3b9201292f6786ef4de81bcc02e971eb\/geosite-category-ads-all\.srs$/);
         expect(Object.values(REMOTE_SOURCES).every(source => !source.singbox?.includes('Loyalsoldier/sing-box-rules'))).toBe(true);
         expect(Object.values(providers).every(provider => provider.format === 'binary')).toBe(true);
         expect(providers.ADS.url).toBe(REMOTE_SOURCES.ADS.singbox);
@@ -136,8 +137,22 @@ describe('Builtin template rule audit', () => {
         expect(adsRuleSet).toMatchObject({
             type: 'remote',
             format: 'binary',
-            url: 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs',
-            download_detour: 'DIRECT'
+            url: REMOTE_SOURCES.ADS.singbox,
+            download_detour: DNS_PROXY_GROUP
         });
+    });
+
+    it('applies the local-only listener and split-DNS baseline to template outputs', () => {
+        const model = getOptimizedTemplateModel('clash_misub_media_ai');
+        const clash = yaml.load(renderClashFromTemplateModel(model));
+        const singbox = JSON.parse(renderSingboxFromTemplateModel(model));
+
+        expect(clash['allow-lan']).toBe(false);
+        expect(clash['bind-address']).toBe('127.0.0.1');
+        expect(clash['external-controller']).toBe('127.0.0.1:9090');
+        expect(clash.dns['respect-rules']).toBe(true);
+        expect(singbox.inbounds[0]).toMatchObject({ type: 'tun', auto_route: true, strict_route: true });
+        expect(singbox.dns.final).toBe('dns-foreign-1');
+        expect(singbox.outbounds.find(outbound => outbound.tag === '🌐 DNS 出口')?.outbounds).not.toContain('DIRECT');
     });
 });

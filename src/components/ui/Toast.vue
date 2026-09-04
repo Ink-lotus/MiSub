@@ -36,7 +36,7 @@ const handleClose = (id) => {
 </script>
 
 <template>
-  <div class="fixed z-[100] flex flex-col items-end gap-3 pointer-events-none top-20 md:top-4 right-4 left-4 md:left-auto max-h-[calc(100vh-120px)] md:max-h-[100vh] overflow-hidden pr-1 pb-safe">
+  <div class="fixed flex flex-col items-end gap-3 pointer-events-none top-20 md:top-4 right-4 left-4 md:left-auto max-h-[calc(100vh-120px)] md:max-h-[100vh] overflow-hidden pr-1 pb-safe" :style="{ zIndex: 'var(--z-toast)' }">
     <TransitionGroup name="toast">
       <div
         v-for="toast in toastStore.toasts"

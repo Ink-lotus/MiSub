@@ -323,7 +323,7 @@ export async function handleMisubsSave(request, env) {
         if (finalMisubs && finalMisubs.length > 0) {
             try {
                 const notificationPromises = finalMisubs
-                    .filter(sub => sub && sub.url && sub.url.startsWith('http'))
+                    .filter(sub => sub?.enabled && sub.url && sub.url.startsWith('http'))
                     .map(sub => checkAndNotify(sub, settings, env).catch(notifyError => {
                         console.warn('[API] Notification failed for subscription:', sub?.name || sub?.url, notifyError);
                     }));

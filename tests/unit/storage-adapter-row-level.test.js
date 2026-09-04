@@ -23,7 +23,7 @@ function createKVMock(initialData = {}) {
   };
 }
 
-function createD1Mock({ subscriptions = [], profiles = [], settings = [] } = {}) {
+function createD1Mock({ subscriptions = [], profiles = [], settings = [], queryCounts = null } = {}) {
   const subMap = new Map(subscriptions.map(item => [item.id, JSON.stringify(item)]));
   const profileMap = new Map(profiles.map(item => [item.id, JSON.stringify(item)]));
   const settingsMap = new Map(settings.map(item => [item.key, JSON.stringify(item.value)]));
@@ -32,9 +32,11 @@ function createD1Mock({ subscriptions = [], profiles = [], settings = [] } = {})
     prepare(sql) {
       const runUnboundAll = async () => {
         if (sql.includes('SELECT data FROM subscriptions')) {
+          if (queryCounts) queryCounts.subscriptions = (queryCounts.subscriptions || 0) + 1;
           return { results: Array.from(subMap.values()).map(data => ({ data })) };
         }
         if (sql.includes('SELECT data FROM profiles')) {
+          if (queryCounts) queryCounts.profiles = (queryCounts.profiles || 0) + 1;
           return { results: Array.from(profileMap.values()).map(data => ({ data })) };
         }
         return { results: [] };
@@ -165,6 +167,37 @@ describe('Storage adapter row-level APIs', () => {
 
     expect(await adapter.deleteProfileById('profile-1')).toBe(true);
     expect(await adapter.getProfileById('profile-1')).toBeNull();
+  });
+
+  it('caches D1 collection reads and invalidates them after writes', async () => {
+    const queryCounts = {};
+    const d1 = createD1Mock({
+      subscriptions: [{ id: 'sub-1', name: 'Sub One' }],
+      profiles: [{ id: 'profile-1', name: 'Profile One' }],
+      queryCounts
+    });
+    const firstAdapter = StorageFactory.createAdapter({ MISUB_DB: d1 }, 'd1');
+    const secondAdapter = StorageFactory.createAdapter({ MISUB_DB: d1 }, 'd1');
+
+    const [firstSubs, secondSubs] = await Promise.all([
+      firstAdapter.getAllSubscriptions(),
+      secondAdapter.getAllSubscriptions()
+    ]);
+    expect(firstSubs).toHaveLength(1);
+    expect(secondSubs).toHaveLength(1);
+    expect(queryCounts.subscriptions).toBe(1);
+
+    await firstAdapter.getAllProfiles();
+    await secondAdapter.getAllProfiles();
+    expect(queryCounts.profiles).toBe(1);
+
+    await firstAdapter.putSubscription({ id: 'sub-2', name: 'Sub Two' });
+    expect(await secondAdapter.getAllSubscriptions()).toHaveLength(2);
+    expect(queryCounts.subscriptions).toBe(2);
+
+    await firstAdapter.putProfile({ id: 'profile-2', name: 'Profile Two' });
+    expect(await secondAdapter.getAllProfiles()).toHaveLength(2);
+    expect(queryCounts.profiles).toBe(2);
   });
 
   it('reads legacy D1 main-row blob data alongside row-level records', async () => {

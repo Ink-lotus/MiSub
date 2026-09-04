@@ -265,7 +265,7 @@ watch(() => props.settings.profileToken, (val) => {
           </select>
         </div>
 
-        <!-- 流量统计节点 -->
+        <!-- 流量与到期时间节点 -->
         <div
           class="flex items-center justify-between p-4 bg-white/70 dark:bg-gray-900/50 border border-gray-200/70 dark:border-white/10 misub-radius-lg">
           <div>

@@ -3,6 +3,8 @@ import {
     buildExternalSubconverterUrl,
     buildManagedConfigUrl,
     extractProxySectionFromBuiltin,
+    formatNotificationExpireTime,
+    formatNotificationExpireStatus,
     resolveExternalTemplateConfigUrl,
     resolveTemplateSource,
     resolveTemplateUrl,
@@ -15,6 +17,28 @@ import {
 } from '../../functions/modules/subscription/template-compatibility.js';
 
 describe('Main handler template url', () => {
+    it('formats Telegram expiration with profile priority and merged fallback', () => {
+        const now = Date.parse('2029-01-01T00:00:00Z');
+        const mergedExpire = Math.floor(Date.parse('2030-01-01T00:00:00Z') / 1000);
+
+        expect(formatNotificationExpireTime('2031-01-02T03:04:05Z', mergedExpire, now)).toContain('2031');
+        expect(formatNotificationExpireTime('', mergedExpire, now)).toContain('2030');
+        expect(formatNotificationExpireTime('', 0, now)).toBe('未设置');
+        expect(formatNotificationExpireTime('', mergedExpire, Date.parse('2032-01-01T00:00:00Z'))).toContain('2030');
+    });
+
+    it('formats expiration status independently from expiration time', () => {
+        const now = Date.parse('2029-01-01T00:00:00Z');
+        const soon = Math.floor(Date.parse('2029-01-04T00:00:00Z') / 1000);
+        const later = Math.floor(Date.parse('2029-02-01T00:00:00Z') / 1000);
+        const expired = Math.floor(Date.parse('2028-12-31T00:00:00Z') / 1000);
+
+        expect(formatNotificationExpireStatus('', 0, now)).toBe('正常');
+        expect(formatNotificationExpireStatus('', later, now, 3)).toBe('正常');
+        expect(formatNotificationExpireStatus('', soon, now, 3)).toBe('即将到期');
+        expect(formatNotificationExpireStatus('', expired, now, 3)).toBe('已到期');
+    });
+
     it('should preserve subscription url while removing cache flags', () => {
         const url = buildManagedConfigUrl('https://example.com/sub?profile=demo&refresh=1&nocache=1');
 

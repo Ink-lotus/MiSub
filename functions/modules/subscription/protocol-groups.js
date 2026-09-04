@@ -5,7 +5,8 @@ export const PROTOCOL_GROUP_PATTERNS = [
     { name: 'Hysteria2 节点', pattern: /\b(?:hysteria2|hy2)\b/i },
     { name: 'Shadowsocks 节点', pattern: /\b(?:ss|shadowsocks)\b/i },
     { name: 'TUIC 节点', pattern: /\btuic\b/i },
-    { name: 'AnyTLS 节点', pattern: /\banytls\b/i }
+    { name: 'AnyTLS 节点', pattern: /\banytls\b/i },
+    { name: 'WireGuard 节点', pattern: /\bwireguard\b/i }
 ];
 
 export function groupNodeLinesByProtocol(nodeLines = []) {

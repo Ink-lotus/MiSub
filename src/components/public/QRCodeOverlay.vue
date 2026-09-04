@@ -27,7 +27,10 @@ const {
         v-if="isExpanded"
         @pointerdown.capture="handleBackdropPointerDown"
         @click.self="handleBackdropClick"
-        class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+        :style="{ zIndex: 'var(--z-modal)' }"
+        role="dialog"
+        aria-modal="true"
       >
         <div class="relative bg-white dark:bg-gray-800 misub-radius-lg p-8 shadow-2xl max-w-sm w-full mx-4 transform transition-all border border-gray-100 dark:border-gray-700"
           @click.stop>

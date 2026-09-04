@@ -176,7 +176,7 @@ Profile 输出链路：
 - `accessLogPersistenceMode`：访问日志持久化模式。
 - `NotifyThresholdDays`：到期提醒阈值。
 - `NotifyThresholdPercent`：流量提醒阈值。
-- `enableTrafficNode`：是否启用流量节点。
+- `enableTrafficNode`：是否启用流量与到期时间虚拟节点。
 - `enableFlagEmoji`：是否启用国旗 emoji。
 - `enablePublicPage`：是否启用公开页。
 - `autoUpdateInterval`：自动更新间隔，`0` 表示禁用。

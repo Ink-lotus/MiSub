@@ -24,7 +24,7 @@ const isSortingSubs = ref(false);
 const showDeleteSubsModal = ref(false);
 
 const {
-  subscriptions, subsCurrentPage, subsTotalPages, paginatedSubscriptions,
+  subscriptions, filteredSubscriptions, searchQuery: subscriptionSearchQuery, subsCurrentPage, subsTotalPages, paginatedSubscriptions,
   changeSubsPage, addSubscription, updateSubscription, deleteSubscription, deleteAllSubscriptions,
   addSubscriptionsFromBulk, handleUpdateNodeCount, batchUpdateAllSubscriptions,
   reorderSubscriptions
@@ -107,9 +107,12 @@ const handleQRCode = (id) => {
     <SubscriptionPanel
       :subscriptions="subscriptions"
       :paginated-subscriptions="paginatedSubscriptions"
+      :search-query="subscriptionSearchQuery"
+      :filtered-count="filteredSubscriptions.length"
       :current-page="subsCurrentPage"
       :total-pages="subsTotalPages"
       :is-sorting="isSortingSubs"
+      searchable
       @add="handleAddSubscription"
       @delete="handleDeleteSubscriptionWithCleanup"
       @change-page="changeSubsPage"
@@ -123,6 +126,7 @@ const handleQRCode = (id) => {
       @reorder="reorderSubscriptions"
       @import="openBulkImportModal"
       @qrcode="handleQRCode"
+      @update-search="subscriptionSearchQuery = $event"
     >
         <!-- Slot removed as user requested button move to dropdown -->
     </SubscriptionPanel>

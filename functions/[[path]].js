@@ -29,7 +29,7 @@ import { createDisguiseResponse } from './modules/disguise-page.js';
 import { StorageFactory, SettingsCache } from './storage-adapter.js';
 import { KV_KEY_SETTINGS, DEFAULT_SETTINGS as defaultSettings } from './modules/config.js';
 import { handleCronTrigger } from './modules/notifications.js';
-import { authMiddleware } from './modules/auth-middleware.js';
+import { authMiddleware, renewAuthSession } from './modules/auth-middleware.js';
 
 function parseCorsOrigins(env, requestUrl) {
     const configured = (env?.CORS_ORIGINS || '')
@@ -339,7 +339,7 @@ export async function onRequest(context) {
             origins: parseCorsOrigins(env, url),
             allowCredentials: true
         };
-        return await corsMiddleware(
+        const response = await corsMiddleware(
             request,
             () => csrfOriginMiddleware(
                 request,
@@ -348,6 +348,14 @@ export async function onRequest(context) {
             ),
             corsOptions
         );
+
+        // Sliding session renewal: refresh active sessions after seven days.
+        // Login and logout manage the cookie themselves and must not be renewed here.
+        const isAuthCookieManagementRoute = url.pathname === '/api/login' || url.pathname === '/api/logout';
+        if (isAuthCookieManagementRoute || request.method === 'OPTIONS') {
+            return response;
+        }
+        return await renewAuthSession(request, env, response);
     } catch (error) {
         // 全局错误处理
         console.error('[Main Handler Error]', error);

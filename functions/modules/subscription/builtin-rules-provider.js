@@ -1,4 +1,5 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
+import { DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from './safe-dns.js';
 
 /**
  * 策略组标准名称常量
@@ -8,6 +9,52 @@ export const DEFAULT_RELAY_GROUP = '🌍 总出口';
 export const AUTO_SELECT_GROUP = '♻️ 自动选择';
 export const FALLBACK_GROUP = '🔯 故障转移';
 export const MANUAL_SELECT_GROUP = '👋 手动切换';
+
+export const AI_SERVICE_RULES = Object.freeze([
+    { id: 'openai', name: 'OpenAI', domains: ['openai.com', 'chatgpt.com', 'oaistatic.com', 'oaiusercontent.com', 'auth0.openai.com'] },
+    { id: 'claude', name: 'Claude', domains: ['anthropic.com', 'claude.ai', 'claude.com', 'claudeusercontent.com', 'anthropicusercontent.com'] },
+    { id: 'gemini', name: 'Gemini', domains: ['gemini.google.com', 'aistudio.google.com', 'generativelanguage.googleapis.com', 'ai.google.dev', 'makersuite.google.com'] },
+    { id: 'copilot', name: 'Copilot', domains: ['copilot.microsoft.com', 'githubcopilot.com', 'api.githubcopilot.com'] },
+    { id: 'grok', name: 'Grok', domains: ['x.ai', 'grok.com', 'grok.x.com'] },
+    { id: 'perplexity', name: 'Perplexity', domains: ['perplexity.ai', 'pplx.ai'] },
+    { id: 'mistral', name: 'Mistral', domains: ['mistral.ai'] },
+    { id: 'deepseek', name: 'DeepSeek', domains: ['deepseek.com', 'chat.deepseek.com', 'api.deepseek.com'] },
+    { id: 'ai-platforms', name: 'AI 平台', domains: ['poe.com', 'character.ai', 'huggingface.co', 'replicate.com', 'openrouter.ai', 'groq.com', 'cohere.com'] }
+]);
+
+export const AI_DOMAIN_RULE_LINES = AI_SERVICE_RULES.flatMap(service =>
+    service.domains.map(domain => `DOMAIN-SUFFIX,${domain},🤖 ${service.name}`)
+);
+
+const AI_AUTO_GROUP = '🤖 AI 自动';
+const AI_FALLBACK_GROUP = '🤖 AI 故障转移';
+
+function dnsProxyGroup(proxyNames) {
+    return {
+        name: DNS_PROXY_GROUP,
+        type: 'url-test',
+        proxies: proxyNames.length > 0 ? proxyNames : ['REJECT'],
+        hidden: true,
+        options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
+    };
+}
+
+function aiPolicyGroups(proxyNames, regionNames, { relay = false } = {}) {
+    const nodeCandidates = proxyNames.length > 0 ? proxyNames : ['REJECT'];
+    const candidates = [AI_AUTO_GROUP, AI_FALLBACK_GROUP, ...regionNames, MANUAL_SELECT_GROUP];
+    if (relay) candidates.push('🔗 链式代理', '🚀 常用节点');
+
+    return [
+        { name: AI_AUTO_GROUP, type: 'url-test', proxies: nodeCandidates, hidden: true, options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 } },
+        { name: AI_FALLBACK_GROUP, type: 'fallback', proxies: nodeCandidates, hidden: true, options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 } },
+        { name: '🤖 智能 AI', type: 'select', proxies: candidates },
+        ...AI_SERVICE_RULES.map(service => ({
+            name: `🤖 ${service.name}`,
+            type: 'select',
+            proxies: candidates
+        }))
+    ];
+}
 
 /**
  * 自动生成地区策略组（通用中间格式）
@@ -34,6 +81,7 @@ export function pruneProxyGroups(proxyGroups, proxies) {
         AUTO_SELECT_GROUP,
         FALLBACK_GROUP,
         MANUAL_SELECT_GROUP,
+        DNS_PROXY_GROUP,
         ...['DIRECT', 'REJECT', 'REJECT-DROP', 'ANY'] // 各平台通用保留字
     ]);
 
@@ -59,9 +107,10 @@ export function pruneProxyGroups(proxyGroups, proxies) {
         });
 
         // 兜底逻辑
+        const failClosed = String(group.name || '').startsWith('🤖') || group.name === DNS_PROXY_GROUP;
         return {
             ...group,
-            proxies: newProxies.length > 0 ? newProxies : ['DIRECT']
+            proxies: newProxies.length > 0 ? newProxies : [failClosed ? 'REJECT' : 'DIRECT']
         };
     });
 }
@@ -108,10 +157,12 @@ export const POLICY_GROUPS = {
     BASE: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
         return [
+            dnsProxyGroup(proxyNames),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames }
+            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
+            ...aiPolicyGroups(proxyNames, [])
         ];
     },
     // 标准配置：全能型
@@ -120,12 +171,13 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
+            dnsProxyGroup(proxyNames),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
             { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
             ...regionSelectGroups,
-            { name: '🤖 智能 AI', type: 'select', proxies: ['🇺🇸 美国节点', '🇸🇬 狮城节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
+            ...aiPolicyGroups(proxyNames, regionNames),
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP] },
@@ -140,13 +192,14 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
+            dnsProxyGroup(proxyNames),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
             { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
             ...regionSelectGroups,
-            // 核心修复：业务组直接引用具体地区组或自动选择组，不引用 DEFAULT_SELECT_GROUP 
-            { name: '🤖 智能 AI', type: 'select', proxies: ['🇺🇸 美国节点', '🇸🇬 狮城节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
+            // AI 服务始终使用代理候选；无可用节点时由 pruneProxyGroups 保持 REJECT。
+            ...aiPolicyGroups(proxyNames, regionNames),
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP] },
@@ -163,6 +216,7 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
+            dnsProxyGroup(proxyNames),
             { name: DEFAULT_RELAY_GROUP, type: 'select', proxies: ['🔗 链式代理', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, '🚀 常用节点', ...regionNames, 'DIRECT'] },
             // 保持 provider 层为通用 select，不在抽象层输出 relay 语义。
             // 否则模板渲染/普通 Clash 路径可能把它转换成 Mihomo 专属 dialer-proxy，导致客户端拉取失败。
@@ -176,7 +230,7 @@ export const POLICY_GROUPS = {
             // 核心修复：链式版的分流也禁止回引 DEFAULT_RELAY_GROUP，统一使用地区组或常用节点
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
-            { name: '🤖 智能 AI', type: 'select', proxies: ['🔗 链式代理', '🇺🇸 美国节点', '🇸🇬 狮城节点', '🇯🇵 日本节点', '🚀 常用节点', 'DIRECT'] },
+            ...aiPolicyGroups(proxyNames, regionNames, { relay: true }),
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', '🚀 常用节点', AUTO_SELECT_GROUP] },
             { name: 'Ⓜ️ Microsoft', type: 'select', proxies: ['DIRECT', '🚀 常用节点', AUTO_SELECT_GROUP] },
             ...regionSupportGroups
@@ -187,51 +241,90 @@ export const POLICY_GROUPS = {
 /**
  * 远程规则源配置 (对齐各平台最高性能格式)
  */
-const SING_GEOSITE_BASE = 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set';
+export const PINNED_RULE_REVISIONS = Object.freeze({
+    ACL4SSR: '433381ebc4b1de59350fa8bed2a04a888228f801',
+    SING_GEOSITE: '0adeef8a3b9201292f6786ef4de81bcc02e971eb',
+    SING_GEOIP: 'b9c5e675b4d5359d4b47f4434fa7ae77e9991306',
+    BLACKMATRIX: '538b8a79532c44dfbcb8e694d2f43e753c60b157'
+});
+
+const ACL4SSR_BASE = `https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}`;
+const SING_GEOSITE_BASE = `https://raw.githubusercontent.com/SagerNet/sing-geosite/${PINNED_RULE_REVISIONS.SING_GEOSITE}`;
+const SING_GEOIP_BASE = `https://raw.githubusercontent.com/SagerNet/sing-geoip/${PINNED_RULE_REVISIONS.SING_GEOIP}`;
+
+export function pinRemoteRuleUrl(sourceUrl) {
+    const raw = String(sourceUrl || '').trim();
+    if (!/^https?:\/\//i.test(raw)) return sourceUrl;
+
+    try {
+        const url = new URL(raw);
+        if (!/raw\.githubusercontent\.com$/i.test(url.hostname)) return raw;
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length < 4) return raw;
+        const key = `${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
+        const revisions = {
+            'acl4ssr/acl4ssr': PINNED_RULE_REVISIONS.ACL4SSR,
+            'sagernet/sing-geosite': PINNED_RULE_REVISIONS.SING_GEOSITE,
+            'sagernet/sing-geoip': PINNED_RULE_REVISIONS.SING_GEOIP,
+            'blackmatrix7/ios_rule_script': PINNED_RULE_REVISIONS.BLACKMATRIX
+        };
+        const revision = revisions[key];
+        if (!revision) return raw;
+        parts[2] = revision;
+        url.pathname = `/${parts.join('/')}`;
+        return url.toString();
+    } catch {
+        return raw;
+    }
+}
 
 export const REMOTE_SOURCES = {
     ADS: {
         name: '广告拦截',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/BanAD.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/BanAD.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-category-ads-all.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list',
-        quanx: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list'
+        surge: `${ACL4SSR_BASE}/Clash/BanAD.list`,
+        quanx: `${ACL4SSR_BASE}/Clash/BanAD.list`
     },
     STREAM: {
         name: '流媒体',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Netflix.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Netflix.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-netflix.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Netflix.list'
+        surge: `${ACL4SSR_BASE}/Clash/Netflix.list`
     },
     SOCIAL: {
         name: '社交媒体',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Telegram.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Telegram.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-telegram.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Telegram.list'
+        surge: `${ACL4SSR_BASE}/Clash/Telegram.list`
     },
     APPLE: {
         name: '苹果服务',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Apple.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Apple.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-apple.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Apple.list'
+        surge: `${ACL4SSR_BASE}/Clash/Apple.list`
     },
     MICROSOFT: {
         name: '微软服务',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/Microsoft.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Microsoft.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-microsoft.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Microsoft.list',
-        quanx: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Microsoft.list'
+        surge: `${ACL4SSR_BASE}/Clash/Microsoft.list`,
+        quanx: `${ACL4SSR_BASE}/Clash/Microsoft.list`
     },
     AI: {
         name: '智能 AI',
-        clash: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset/OpenAi.yaml',
+        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/OpenAi.yaml`,
         singbox: `${SING_GEOSITE_BASE}/geosite-openai.srs`,
-        surge: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list',
-        quanx: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list'
+        surge: `${ACL4SSR_BASE}/Clash/Ruleset/OpenAi.list`,
+        quanx: `${ACL4SSR_BASE}/Clash/Ruleset/OpenAi.list`
     },
     'geoip-cn': {
         name: 'China IP (GeoIP)',
-        singbox: 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs'
+        singbox: `${SING_GEOIP_BASE}/geoip-cn.srs`
+    },
+    [SINGBOX_CN_RULE_SET]: {
+        name: 'China Domains (GeoSite)',
+        singbox: `${SING_GEOSITE_BASE}/geosite-cn.srs`
     }
 };
 
@@ -240,6 +333,8 @@ export const REMOTE_SOURCES = {
  */
 export const RULE_SETS = {
     BASE: [
+        ...AI_DOMAIN_RULE_LINES,
+        'RULE-SET,AI,🤖 智能 AI',
         `DOMAIN-SUFFIX,google.com,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-KEYWORD,google,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_SELECT_GROUP}`,
@@ -248,6 +343,7 @@ export const RULE_SETS = {
     ],
     STD: [
         'RULE-SET,ADS,🎬 视频广告',
+        ...AI_DOMAIN_RULE_LINES,
         'RULE-SET,AI,🤖 智能 AI',
         'RULE-SET,STREAM,🎥 流媒体',
         'RULE-SET,APPLE,🍎 Apple',
@@ -260,6 +356,7 @@ export const RULE_SETS = {
     FULL: [
         'RULE-SET,ADS,🎬 视频广告',
         'RULE-SET,SOCIAL,📲 Telegram',
+        ...AI_DOMAIN_RULE_LINES,
         'RULE-SET,AI,🤖 智能 AI',
         'RULE-SET,STREAM,🎥 流媒体',
         'RULE-SET,APPLE,🍎 Apple',
@@ -271,6 +368,7 @@ export const RULE_SETS = {
     ],
     RELAY: [
         'RULE-SET,ADS,🎬 视频广告',
+        ...AI_DOMAIN_RULE_LINES,
         'RULE-SET,AI,🤖 智能 AI',
         'RULE-SET,STREAM,🎥 流媒体',
         'RULE-SET,APPLE,🍎 Apple',
@@ -374,7 +472,7 @@ export function getRemoteProviderDefinitions(format, ruleLines) {
             providers[tag] = {
                 type: 'http',
                 behavior: 'classical',
-                url: source.clash,
+                url: pinRemoteRuleUrl(source.clash),
                 path: `./ruleset/${tag}.yaml`,
                 interval: 86400
             };
@@ -383,11 +481,16 @@ export function getRemoteProviderDefinitions(format, ruleLines) {
                 tag: tag,
                 type: 'remote',
                 format: String(source.singbox || '').toLowerCase().endsWith('.srs') ? 'binary' : 'source',
-                url: source.singbox,
-                download_detour: 'DIRECT'
+                url: pinRemoteRuleUrl(source.singbox),
+                update_interval: '24h',
+                download_detour: DNS_PROXY_GROUP
             };
         }
     });
 
     return providers;
+}
+
+export function getSingboxDnsRuleSet() {
+    return getRemoteProviderDefinitions('singbox', [{ type: 'rule_set', tag: SINGBOX_CN_RULE_SET }])[SINGBOX_CN_RULE_SET];
 }

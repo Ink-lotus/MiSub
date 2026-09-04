@@ -65,7 +65,7 @@ overwrite_original_rules=true`
         description: '面向常见流媒体和 AI 服务场景的内置模板，保留自动选择、地区组和核心服务分流。',
         content: `[custom]
 ruleset=🤖 AI 服务,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list
-ruleset=🤖 AI 服务,https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Claude.list
+ruleset=🤖 AI 服务,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/538b8a79532c44dfbcb8e694d2f43e753c60b157/rule/Clash/Claude/Claude.list
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,x.ai
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,xai.com
 ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,grok.com
@@ -145,7 +145,7 @@ overwrite_original_rules=true`
         description: '专为 AI 开发者优化，强化 OpenAI/Claude 路由，增加固定节点漂移保护与纯净度检测引导。',
         content: `[custom]
 ruleset=🤖 AI 核心服务,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list
-ruleset=🤖 AI 核心服务,https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Claude.list
+ruleset=🤖 AI 核心服务,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/538b8a79532c44dfbcb8e694d2f43e753c60b157/rule/Clash/Claude/Claude.list
 ruleset=🌍 国外媒体,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ProxyMedia.list
 ruleset=🎯 全球直连,[]GEOIP,CN
 ruleset=🐟 漏网之鱼,[]FINAL

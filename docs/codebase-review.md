@@ -55,7 +55,7 @@
 
 ### 安全与公开接口
 
-- `functions/modules/auth-middleware.js`：HMAC cookie 登录会话、七天有效期、auth diagnostic 开关。
+- `functions/modules/auth-middleware.js`：HMAC cookie 登录会话、30 天闲置过期与 7 天活动续期、auth diagnostic 开关。
 - `functions/middleware/cors.js`：CORS、CSRF origin/referrer、安全响应头。
 - `functions/modules/security-utils.js`：敏感字段脱敏、公开 fetch SSRF 防护、redirect 重新校验。
 - 公开接口包括 public profiles/preview/guestbook/error report/Telegram webhook/GitHub release proxy，需要持续关注体积限制和滥用风险。

@@ -62,6 +62,13 @@
   --misub-radius-lg: 0.75rem;
   --misub-radius-xl: 1rem;
   --misub-radius-pill: 9999px;
+
+  /* Keep overlays above fixed app chrome while preserving room for menus/toasts. */
+  --z-nav: 20;
+  --z-popover: 100;
+  --z-toast: 900;
+  --z-modal: 1000000;
+  --z-modal-popover: 1100000;
 }
 
 @layer base {
@@ -76,7 +83,8 @@
   html {
     font-family: var(--font-body);
     font-feature-settings: "cv01", "ss03";
-    scroll-behavior: smooth;
+    /* Keep wheel scrolling proportional to the user's input. */
+    scroll-behavior: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color-scheme: light;
@@ -357,7 +365,7 @@ textarea {
 .mobile-nav-glass {
   @apply left-0 right-0;
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-nav);
   bottom: 0;
   min-height: calc(4rem + max(env(safe-area-inset-bottom, 0px), 12px));
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
@@ -412,7 +420,7 @@ textarea {
     top: 0;
     left: 0;
     right: 0;
-    z-index: 9999;
+    z-index: var(--z-nav);
     background: rgba(255, 255, 255, 0.96) !important;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);

@@ -82,8 +82,11 @@ onMounted(() => {
   <!-- 主模态框 -->
   <div
     v-if="show"
-    class="fixed inset-0 z-50 overflow-y-auto"
+    class="fixed inset-0 overflow-y-auto"
+    :style="{ zIndex: 'var(--z-modal)' }"
     :class="{ 'bg-black bg-opacity-50': show }"
+    role="dialog"
+    aria-modal="true"
     @pointerdown.capture="handleBackdropPointerDown"
     @click.self="handleBackdropClick"
   >

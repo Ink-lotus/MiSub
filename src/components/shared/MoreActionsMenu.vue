@@ -28,9 +28,11 @@ const fixedMenuPosition = computed(() => {
   if (!props.teleportToBody || !triggerRef.value) return {};
 
   const buttonRect = triggerRef.value.getBoundingClientRect();
+  const isInsideModal = Boolean(triggerRef.value.closest('[role="dialog"][aria-modal="true"]'));
   return {
     top: `${buttonRect.bottom}px`,
-    right: `${window.innerWidth - buttonRect.right}px`
+    right: `${window.innerWidth - buttonRect.right}px`,
+    zIndex: isInsideModal ? 'var(--z-modal-popover)' : 'var(--z-popover)'
   };
 });
 
@@ -132,7 +134,6 @@ onUnmounted(() => {
           :id="menuId"
           role="menu"
           :class="['fixed mt-2 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm misub-radius-lg shadow-lg dark:shadow-2xl ring-1 ring-black/5', menuWidthClass]"
-          style="z-index: 999999;"
           :style="fixedMenuPosition"
           @click.stop
           @keydown="handleMenuKeydown"

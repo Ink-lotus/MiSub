@@ -12,6 +12,33 @@ import { extractNodeMetadata } from '../modules/utils/metadata-extractor.js';
  */
 export const NODE_PROTOCOL_REGEX = /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|snell|anytls|socks5|socks|wireguard|naive\+https?|naive\+quic):\/\//i;
 
+/**
+ * 判断代理是否指向本机/未指定地址。
+ * 这类地址不能作为订阅中的真实出口节点。
+ */
+export function isLocalProxyEndpoint(proxy) {
+    let host = '';
+
+    if (proxy && typeof proxy === 'object') {
+        host = proxy.server || proxy.host || '';
+    } else if (typeof proxy === 'string') {
+        try {
+            host = new URL(proxy).hostname;
+        } catch {
+            const match = proxy.match(/@(?:\[([^\]]+)\]|([^:?#/]+))/);
+            host = match?.[1] || match?.[2] || '';
+        }
+    }
+
+    host = String(host).trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    return host === 'localhost'
+        || host === '::1'
+        || host === '::'
+        || host === '0.0.0.0'
+        || /^127(?:\.\d{1,3}){3}$/.test(host)
+        || /^::ffff:127(?:\.\d{1,3}){3}$/.test(host);
+}
+
 function normalizeBase64(input) {
     let normalized = String(input || '').replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
     const padding = normalized.length % 4;

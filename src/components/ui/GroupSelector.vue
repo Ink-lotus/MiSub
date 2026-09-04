@@ -45,10 +45,12 @@ const filteredGroups = computed(() => {
 const updatePosition = () => {
   if (inputRef.value) {
     const rect = inputRef.value.getBoundingClientRect();
+    const isInsideModal = Boolean(containerRef.value?.closest('[role="dialog"][aria-modal="true"]'));
     dropdownStyle.value = {
       top: `${rect.bottom + window.scrollY + 4}px`,
       left: `${rect.left + window.scrollX}px`,
-      width: `${rect.width}px`
+      width: `${rect.width}px`,
+      zIndex: isInsideModal ? 'var(--z-modal-popover)' : 'var(--z-popover)'
     };
   }
 };
@@ -164,7 +166,7 @@ onUnmounted(() => {
         <div
           v-if="isOpen && (groups.length > 0 || modelValue)"
           id="group-selector-dropdown"
-          class="absolute z-[9999] bg-white dark:bg-gray-800 misub-radius-lg shadow-lg border border-gray-100 dark:border-gray-700 max-h-60 overflow-auto py-1 custom-scrollbar"
+          class="absolute bg-white dark:bg-gray-800 misub-radius-lg shadow-lg border border-gray-100 dark:border-gray-700 max-h-60 overflow-auto py-1 custom-scrollbar"
           :style="dropdownStyle"
         >
           <button

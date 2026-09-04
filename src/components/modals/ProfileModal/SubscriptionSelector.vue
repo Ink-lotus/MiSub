@@ -46,8 +46,21 @@ const orderedSelectedSubs = computed({
       .filter(Boolean);
   },
   set(newList) {
-    // 拖拽排序后更新 ID 顺序
-    emit('update:selectedIds', newList.map(s => s.id));
+    const availableIds = new Set(props.subscriptions.map(sub => sub.id));
+    const reorderedIds = newList.map(sub => sub.id);
+    let reorderedIndex = 0;
+
+    // 隐藏的禁用订阅仍保留原有关联，避免仅调整可见订阅顺序时被误删。
+    const mergedIds = props.selectedIds.map(id => {
+      if (!availableIds.has(id)) return id;
+      return reorderedIds[reorderedIndex++];
+    }).filter(Boolean);
+
+    if (reorderedIndex < reorderedIds.length) {
+      mergedIds.push(...reorderedIds.slice(reorderedIndex));
+    }
+
+    emit('update:selectedIds', mergedIds);
   }
 });
 </script>

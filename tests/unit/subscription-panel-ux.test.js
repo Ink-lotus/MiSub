@@ -63,4 +63,12 @@ describe('SubscriptionPanel UX', () => {
     expect(wrapper.emitted('add')).toHaveLength(1);
     expect(wrapper.emitted('import')).toHaveLength(1);
   });
+
+  it('uses a concise list search hint that fits mobile screens', () => {
+    const wrapper = mountPanel({ searchable: true });
+    const search = wrapper.get('[data-testid="subscription-search"]');
+
+    expect(search.attributes('placeholder')).toBe('搜索名称、备注或链接');
+    expect(search.attributes('aria-label')).toBe('搜索机场订阅名称、备注或链接...');
+  });
 });

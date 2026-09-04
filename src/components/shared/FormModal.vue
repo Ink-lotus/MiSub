@@ -72,7 +72,7 @@ const props = defineProps({
   },
   zIndex: {
     type: Number,
-    default: 50
+    default: 1000000
   }
 });
 
@@ -192,6 +192,8 @@ defineExpose({
       ref="modalRef"
       class="fixed inset-0 overflow-y-auto"
       :style="{ zIndex }"
+      role="dialog"
+      aria-modal="true"
       @keydown="handleKeydown"
     >
       <!-- 遮罩层 -->

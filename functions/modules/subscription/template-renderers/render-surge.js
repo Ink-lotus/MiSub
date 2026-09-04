@@ -99,15 +99,27 @@ function buildProxyLine(proxy) {
         if (proxy['skip-cert-verify'] === true || proxy.skipCertVerify === true) extras.push('skip-cert-verify=true');
         return `${name} = tuic, ${server}, ${port}, ${extras.join(', ')}`;
     }
+    // if (type === 'wireguard') {
+    //     const extras = [];
+    //     if (proxy['private-key']) extras.push(`private-key=${proxy['private-key']}`);
+    //     if (proxy['public-key']) extras.push(`peer-public-key=${proxy['public-key']}`);
+    //     if (proxy.reserved) {
+    //         const reserved = Array.isArray(proxy.reserved) ? proxy.reserved.join('/') : proxy.reserved;
+    //         extras.push(`client-id=${reserved}`);
+    //     }
+    //     return `${name} = wireguard, ${server}, ${port}${extras.length ? `, ${extras.join(', ')}` : ''}`;
+    // }
     if (type === 'wireguard') {
-        const extras = [];
-        if (proxy['private-key']) extras.push(`private-key=${proxy['private-key']}`);
-        if (proxy['public-key']) extras.push(`peer-public-key=${proxy['public-key']}`);
-        if (proxy.reserved) {
-            const reserved = Array.isArray(proxy.reserved) ? proxy.reserved.join('/') : proxy.reserved;
-            extras.push(`client-id=${reserved}`);
+        if (
+            !proxy['private-key'] ||
+            !proxy['public-key'] ||
+            (!proxy.ip && !proxy.ipv6)
+        ) {
+            return null;
         }
-        return `${name} = wireguard, ${server}, ${port}${extras.length ? `, ${extras.join(', ')}` : ''}`;
+    
+        const sectionName = getWireGuardSectionName(name);
+        return `${name} = wireguard, section-name=${sectionName}`;
     }
     if (type === 'http' || type === 'https' || type === 'socks5') {
         const extras = [];
@@ -129,6 +141,132 @@ function buildProxyLine(proxy) {
     }
 
     return null;
+}
+
+// builtin-surge-generator.js implement
+function getWireGuardSectionName(name) {
+    const safeName = String(name || 'WireGuard')
+        .replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, '_');
+
+    return `WG_${safeName}`;
+}
+function buildWireGuardSection(proxy) {
+    if (!proxy || String(proxy.type || '').toLowerCase() !== 'wireguard') {
+        return null;
+    }
+
+    if (
+        !proxy.server ||
+        !proxy.port ||
+        !proxy['private-key'] ||
+        !proxy['public-key'] ||
+        (!proxy.ip && !proxy.ipv6)
+    ) {
+        return null;
+    }
+
+    const name = proxy.name || 'Untitled';
+    const sectionName = getWireGuardSectionName(name);
+
+    const lines = [
+        `[WireGuard ${sectionName}]`,
+        `private-key = ${proxy['private-key']}`
+    ];
+
+    // IPv4
+    if (proxy.ip) {
+        const ipv4 = Array.isArray(proxy.ip)
+            ? proxy.ip.find(ip => !String(ip).includes(':'))
+            : proxy.ip;
+
+        if (ipv4) {
+            lines.push(`self-ip = ${ipv4}`);
+        }
+    }
+
+    // IPv6
+    if (proxy.ipv6) {
+        const ipv6 = Array.isArray(proxy.ipv6)
+            ? proxy.ipv6.find(Boolean)
+            : proxy.ipv6;
+
+        if (ipv6) {
+            lines.push(`self-ip-v6 = ${ipv6}`);
+        }
+    }
+
+    // DNS：有就输出，没有则不主动添加
+    if (proxy.dns) {
+        const dns = Array.isArray(proxy.dns)
+            ? proxy.dns.join(', ')
+            : proxy.dns;
+
+        if (dns) {
+            lines.push(`dns-server = ${dns}`);
+        }
+    }
+
+    // MTU
+    if (proxy.mtu) {
+        lines.push(`mtu = ${proxy.mtu}`);
+    }
+
+    // Peer
+    const peerParts = [];
+
+    peerParts.push(`public-key = ${proxy['public-key']}`);
+
+    let allowedIps;
+
+    if (proxy['allowed-ips']) {
+        allowedIps = Array.isArray(proxy['allowed-ips'])
+            ? proxy['allowed-ips'].join(', ')
+            : proxy['allowed-ips'];
+    } else {
+        // 没有显式 allowed-ips 时，根据是否有 IPv6 自动生成
+        allowedIps = proxy.ipv6
+            ? '0.0.0.0/0, ::/0'
+            : '0.0.0.0/0';
+    }
+
+    if (allowedIps.includes(',')) {
+        peerParts.push(`allowed-ips = "${allowedIps}"`);
+    } else {
+        peerParts.push(`allowed-ips = ${allowedIps}`);
+    }
+
+    // IPv6 endpoint 需要加 []
+    const server = String(proxy.server);
+    const endpointHost =
+        server.includes(':') &&
+        !server.startsWith('[')
+            ? `[${server}]`
+            : server;
+
+    peerParts.push(`endpoint = ${endpointHost}:${proxy.port}`);
+
+    // 可选 PSK
+    if (proxy['preshared-key']) {
+        peerParts.push(`preshared-key = ${proxy['preshared-key']}`);
+    }
+
+    // 可选 keepalive
+    if (proxy['persistent-keepalive']) {
+        peerParts.push(`keepalive = ${proxy['persistent-keepalive']}`);
+    }
+
+    // Cloudflare WARP reserved → Surge client-id
+    if (proxy.reserved) {
+        const clientId = Array.isArray(proxy.reserved)
+            ? proxy.reserved.join('/')
+            : proxy.reserved;
+
+        peerParts.push(`client-id = ${clientId}`);
+    }
+
+    lines.push(`peer = (${peerParts.join(', ')})`);
+
+    return lines.join('\n');
 }
 
 function buildProxyGroupLine(group) {
@@ -174,7 +312,19 @@ export function renderSurgeFromTemplateModel(model, options = {}) {
         ? normalizedModel.proxies
         : urlsToClashProxies(proxyUrls);
 
-    const proxyLines = proxies.map(buildProxyLine).filter(Boolean);
+    // const proxyLines = proxies.map(buildProxyLine).filter(Boolean);
+    const proxyLines = proxies
+        .map(buildProxyLine)
+        .filter(Boolean);
+
+    const wireguardSections = proxies
+        .filter(proxy =>
+            String(proxy.type || '').toLowerCase() === 'wireguard'
+        )
+        .map(buildWireGuardSection)
+        .filter(Boolean);
+    
+    const wireguardBlock = wireguardSections.join('\n\n');
     const groupLines = normalizedModel.groups
         .filter(group => Array.isArray(group.members) && group.members.length > 0)
         .map(buildProxyGroupLine)
@@ -184,11 +334,12 @@ export function renderSurgeFromTemplateModel(model, options = {}) {
     return [
         '[General]',
         'loglevel = notify',
-        'dns-server = 223.5.5.5, 114.114.114.114',
-        'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local, elpass.app',
-        'external-controller-access = MiSub@0.0.0.0:6170',
-        'allow-wifi-access = true',
-        'enhanced-mode-interface = any',
+        'dns-server = 223.5.5.5, 119.29.29.29',
+        'encrypted-dns-server = h3://223.6.6.6/dns-query',
+        'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local, elpass.app, e.crashlytics.com, captive.apple.com, ::ffff:0:0:0:0/1, ::ffff:128:0:0:0/1, fe80::/10, fc00::/7, ::1/128',
+        'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10',
+        'ipv6 = true',
+        'ipv6-vif = auto',
         'internet-test-url = http://www.apple.com/library/test/success.html',
         'proxy-test-url = http://www.gstatic.com/generate_204',
         'test-timeout = 5',
@@ -196,6 +347,7 @@ export function renderSurgeFromTemplateModel(model, options = {}) {
         '[Proxy]',
         ...proxyLines,
         '',
+        ...(wireguardBlock ? [wireguardBlock, ''] : []),
         '[Proxy Group]',
         ...groupLines,
         '',

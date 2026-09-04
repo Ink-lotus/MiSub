@@ -121,4 +121,39 @@ describe('handleNodeCountRequest error body handling', () => {
             expect(options?.cf?.insecureSkipVerify).toBe(true);
         }
     });
+
+    it('protects the stored healthy node count when automatic refresh sees one partial node', async () => {
+        const adapter = createAdapter({
+            settings: { builtinSkipCertVerify: false },
+            subscriptions: [{
+                id: 'sub-a',
+                url: 'https://airport.example/sub',
+                nodeCount: 156,
+                lastGoodNodeCount: 156
+            }]
+        });
+        vi.spyOn(StorageFactory, 'getStorageType').mockResolvedValue('kv');
+        vi.spyOn(StorageFactory, 'createAdapter').mockReturnValue(adapter);
+
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111',
+            { status: 200 }
+        )));
+
+        const request = new Request('http://local/api/node_count', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ url: 'https://airport.example/sub' })
+        });
+
+        const response = await handleNodeCountRequest(request, {});
+        const data = await response.json();
+        const subscriptions = adapter.store.get('misub_subscriptions_v1');
+
+        expect(data.success).toBe(true);
+        expect(data.data.count).toBe(156);
+        expect(data.data.protected).toBe(true);
+        expect(subscriptions[0]).toMatchObject({ nodeCount: 156, lastGoodNodeCount: 156 });
+        expect(adapter.updateSubscriptionById).not.toHaveBeenCalled();
+    });
 });

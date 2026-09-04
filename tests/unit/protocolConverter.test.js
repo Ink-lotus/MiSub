@@ -141,6 +141,31 @@ expect(decoded.id).toBe('uuid-1234-5678')
                 expect(result).toContain('vless-uuid-1234@vless.example.com:443')
             })
 
+            it('应正确转换 VLESS + XHTTP 配置 (保留 path/host/mode)', () => {
+                const proxy = {
+                    name: 'Test VLESS XHTTP',
+                    type: 'vless',
+                    server: 'xhttp.example.com',
+                    port: 443,
+                    uuid: 'xhttp-uuid-5678',
+                    network: 'xhttp',
+                    tls: true,
+                    'xhttp-opts': {
+                        path: '/argo',
+                        host: 'example.org',
+                        mode: 'packet-up'
+                    }
+                }
+
+                const result = convertClashProxyToUrl(proxy)
+                expect(result).toBeTruthy()
+                expect(result).toMatch(/^vless:\/\//)
+                expect(result).toContain('type=xhttp')
+                expect(result).toContain('path=%2Fargo')
+                expect(result).toContain('host=example.org')
+                expect(result).toContain('mode=packet-up')
+            })
+
 it('应正确处理Reality配置', () => {
 const proxy = {
 name: 'VLESS Reality',
@@ -201,6 +226,38 @@ expect(result).toContain('sid=abc123')
                 expect(result).toContain('realm-token=public')
                 expect(result).toContain('realm-server=https%3A%2F%2Frealm.hy2.io')
                 expect(result).toContain('stun-servers=stun.sip.us%3A3478%2Cstun.nextcloud.com%3A3478')
+            })
+        })
+
+        describe('AnyTLS', () => {
+            it('应正确转换基础AnyTLS配置', () => {
+                const proxy = {
+                    name: 'Test AnyTLS',
+                    type: 'anytls',
+                    server: 'anytls.example.com',
+                    port: 443,
+                    password: 'anytls-pass'
+                }
+
+                const result = convertClashProxyToUrl(proxy)
+                expect(result).toBeTruthy()
+                expect(result).toMatch(/^anytls:\/\/anytls-pass@anytls\.example\.com:443/)
+            })
+
+            it('应保留AnyTLS的sni和跳过证书验证参数', () => {
+                const proxy = {
+                    name: 'Test AnyTLS TLS',
+                    type: 'anytls',
+                    server: 'anytls.example.com',
+                    port: 443,
+                    password: 'anytls-pass',
+                    sni: 'apple.com',
+                    'skip-cert-verify': true
+                }
+
+                const result = convertClashProxyToUrl(proxy)
+                expect(result).toContain('sni=apple.com')
+                expect(result).toContain('allowInsecure=1')
             })
         })
 

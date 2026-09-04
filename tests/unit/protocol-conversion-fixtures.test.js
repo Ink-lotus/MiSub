@@ -558,6 +558,22 @@ proxies:
         });
     });
 
+    it('maps Hysteria2 mport URL parameter to Mihomo ports', () => {
+        const url = 'hysteria2://secret@hy2.example.com:443?mport=20000-30000#HY2%20mport';
+        const parsed = urlToClashProxy(url);
+
+        expect(parsed).toMatchObject({
+            type: 'hysteria2',
+            ports: '20000-30000'
+        });
+
+        const [batched] = urlsToClashProxies([url], { addFlagEmoji: false });
+        expect(stripGeneratedFields(batched)).toMatchObject({
+            type: 'hysteria2',
+            ports: '20000-30000'
+        });
+    });
+
     it('preserves Hysteria2 options from Clash YAML through URL and builtin Clash output', () => {
         const clashConfig = `
 proxies:

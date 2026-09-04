@@ -17,9 +17,19 @@ const props = defineProps({
   currentPage: Number,
   totalPages: Number,
   isSorting: Boolean,
+  searchable: { type: Boolean, default: false },
+  searchQuery: { type: String, default: '' },
+  filteredCount: { type: Number, default: undefined },
 });
 
-const emit = defineEmits(['add', 'delete', 'changePage', 'updateNodeCount', 'edit', 'toggleSort', 'markDirty', 'preview', 'deleteAll', 'refreshAll', 'reorder', 'import', 'qrcode']);
+const emit = defineEmits(['add', 'delete', 'changePage', 'updateNodeCount', 'edit', 'toggleSort', 'markDirty', 'preview', 'deleteAll', 'refreshAll', 'reorder', 'import', 'qrcode', 'updateSearch']);
+
+const searchModel = computed({
+  get: () => props.searchQuery,
+  set: value => emit('updateSearch', value)
+});
+
+const visibleCount = computed(() => props.filteredCount ?? props.subscriptions.length);
 
 const draggableSubscriptions = computed({
     get: () => [...props.subscriptions],
@@ -69,6 +79,24 @@ const handleImport = () => emit('import');
           </MoreActionsMenu>
         </div>
       </div>
+      <div v-if="searchable" class="relative mt-4">
+        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          v-model="searchModel"
+          data-testid="subscription-search"
+          type="search"
+          :placeholder="t('subscriptions.listSearchPlaceholder')"
+          :aria-label="t('subscriptions.searchPlaceholder')"
+          :disabled="isSorting"
+          class="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-20 text-sm text-gray-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-500"
+        />
+        <span v-if="searchQuery" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+          {{ visibleCount }}/{{ subscriptions.length }}
+        </span>
+      </div>
     </div>
     <div v-if="subscriptions.length > 0">
       <draggable 
@@ -92,7 +120,7 @@ const handleImport = () => emit('import');
           </div>
         </template>
       </draggable>
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div v-else-if="paginatedSubscriptions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div 
               v-for="(subscription, index) in paginatedSubscriptions"
               :key="subscription.id"
@@ -109,12 +137,18 @@ const handleImport = () => emit('import');
                   @qrcode="handleQRCode(subscription.id)" />
           </div>
       </div>
+      <div v-else class="rounded-xl border border-dashed border-gray-300 bg-white/60 px-6 py-12 text-center dark:border-gray-700 dark:bg-gray-900/50">
+        <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('subscriptions.noSearchResults') }}</p>
+        <button type="button" class="mt-3 text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400" @click="searchModel = ''">
+          {{ t('actions.clearSearch') }}
+        </button>
+      </div>
       <PanelPagination
         v-if="totalPages > 1 && !isSorting"
         variant="panel"
         :current-page="currentPage"
         :total-pages="totalPages"
-        :total-items="subscriptions.length"
+        :total-items="visibleCount"
         :show-total-items="true"
         @change-page="handleChangePage"
       />

@@ -32,6 +32,8 @@ describe('subscription protective node cache', () => {
     it('识别真实代理节点，排除系统伪节点', () => {
         expect(isRealProxyNode('trojan://pass@example.com:443#HK')).toBe(true);
         expect(isRealProxyNode('vmess://eyJhZGQiOiJleGFtcGxlLmNvbSJ9')).toBe(true);
+        expect(isRealProxyNode('trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#伪节点')).toBe(false);
+        expect(isRealProxyNode('vless://00000000-0000-0000-0000-000000000000@[::1]:443#伪节点')).toBe(false);
         expect(isRealProxyNode('127.0.0.1:8080#剩余流量')).toBe(false);
         expect(isRealProxyNode('到期时间：2099-01-01')).toBe(false);
         expect(isRealProxyNode('')).toBe(false);
@@ -156,6 +158,7 @@ describe('subscription protective node cache', () => {
 
         const [updatedSub] = await storage.get('misub_subscriptions_v1');
         expect(updatedSub.nodeCount).toBe(1);
+        expect(updatedSub.lastGoodNodeCount).toBeUndefined();
         expect(updatedSub.userInfo).toEqual({
             upload: 1,
             download: 2,
@@ -164,6 +167,33 @@ describe('subscription protective node cache', () => {
         });
         expect(updatedSub.lastError).toBeNull();
         expect(typeof updatedSub.lastUpdate).toBe('string');
+    });
+
+    it('stores lastGoodNodeCount after a healthy user subscription refresh', async () => {
+        const nodes = Array.from({ length: 12 }, (_, index) =>
+            `trojan://pass${index}@node${index}.example.com:443#Node-${index}`
+        ).join('\n');
+        const sub = { id: 'sub-a', name: 'Airport A', url: 'https://example.com/sub', enabled: true };
+        const storage = createMemoryStorage({
+            misub_subscriptions_v1: [{ ...sub, nodeCount: 0, userInfo: null }]
+        });
+        const waitUntilPromises = [];
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(nodes, { status: 200 })));
+
+        await generateCombinedNodeList(
+            { storage, waitUntil: promise => waitUntilPromises.push(promise) },
+            { enableAccessLog: false, enableFlagEmoji: false },
+            'ClashMeta',
+            [sub],
+            '',
+            { enableSubscriptions: false },
+            false
+        );
+        await Promise.all(waitUntilPromises);
+
+        const [updatedSub] = await storage.get('misub_subscriptions_v1');
+        expect(updatedSub.nodeCount).toBe(12);
+        expect(updatedSub.lastGoodNodeCount).toBe(12);
     });
 
     it('enableNodeCache 关闭时，拉取失败不使用旧缓存', async () => {
@@ -187,6 +217,91 @@ describe('subscription protective node cache', () => {
         );
 
         expect(result.trim()).toBe('');
+    });
+
+    it('enableNodeCache 开启时，异常缩水回退到机场旧缓存', async () => {
+        const cacheKey = buildSubscriptionNodeCacheKey({ id: 'sub-a', url: 'https://example.com/sub' });
+        const cachedNodes = Array.from({ length: 156 }, (_, index) =>
+            `trojan://cached${index}@node${index}.example.com:443#Cached-${index}`
+        );
+        const storage = createMemoryStorage({
+            [cacheKey]: {
+                nodes: cachedNodes,
+                nodeCount: cachedNodes.length,
+                updatedAt: '2026-01-01T00:00:00.000Z'
+            }
+        });
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111',
+            { status: 200 }
+        )));
+
+        const result = await generateCombinedNodeList(
+            { storage },
+            { enableAccessLog: false, enableFlagEmoji: false },
+            'ClashMeta',
+            [{ id: 'sub-a', name: 'Airport', url: 'https://example.com/sub', enabled: true, enableNodeCache: true }],
+            '',
+            { enableSubscriptions: false },
+            false
+        );
+
+        const cache = await storage.get(cacheKey);
+        expect(result.trim().split('\n')).toHaveLength(cachedNodes.length);
+        expect(cache.nodes).toEqual(cachedNodes);
+        expect(cache.nodeCount).toBe(cachedNodes.length);
+    });
+
+    it('known historical node count rejects a partial refresh even without per-sub cache', async () => {
+        const storage = createMemoryStorage();
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111',
+            { status: 200 }
+        )));
+
+        const result = await generateCombinedNodeList(
+            { storage },
+            { enableAccessLog: false, enableFlagEmoji: false },
+            'ClashMeta',
+            [{ id: 'sub-a', name: 'Airport', url: 'https://example.com/sub', enabled: true, nodeCount: 156, enableNodeCache: false }],
+            '',
+            { enableSubscriptions: false },
+            false
+        );
+
+        expect(result.trim()).toBe('');
+    });
+
+    it('keeps lastGoodNodeCount when a user subscription request only sees one node', async () => {
+        const storage = createMemoryStorage({
+            misub_subscriptions_v1: [{
+                id: 'sub-a',
+                url: 'https://example.com/sub',
+                nodeCount: 1,
+                lastGoodNodeCount: 156,
+                userInfo: null
+            }]
+        });
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111',
+            { status: 200 }
+        )));
+        const waitUntilPromises = [];
+        const result = await generateCombinedNodeList(
+            { storage, waitUntil: promise => waitUntilPromises.push(promise) },
+            { enableAccessLog: false, enableFlagEmoji: false },
+            'ClashMeta',
+            [{ id: 'sub-a', name: 'Airport', url: 'https://example.com/sub', enabled: true, nodeCount: 1, lastGoodNodeCount: 156, enableNodeCache: false }],
+            '',
+            { enableSubscriptions: false },
+            false
+        );
+
+        expect(result.trim()).toBe('');
+        await Promise.all(waitUntilPromises);
+        const [updated] = await storage.get('misub_subscriptions_v1');
+        expect(updated.nodeCount).toBe(1);
+        expect(updated.lastGoodNodeCount).toBe(156);
     });
 
     it('clears stored runtime info when protective node cache is disabled and external fetch fails', async () => {

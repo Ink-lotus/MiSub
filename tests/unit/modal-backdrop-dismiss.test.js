@@ -66,6 +66,9 @@ describe('modal backdrop dismiss behavior', () => {
     const backdrop = document.body.querySelector('[role="dialog"]');
     const input = document.body.querySelector('[data-testid="field"]');
 
+    expect(document.body.contains(backdrop)).toBe(true);
+    expect(backdrop.style.zIndex).toBe('var(--z-modal)');
+
     await dispatchBubbled(input, 'pointerdown');
     await dispatchBubbled(backdrop, 'click');
     expect(wrapper.emitted('update:show')).toBeUndefined();

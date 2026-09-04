@@ -1,5 +1,7 @@
 import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from '../safe-dns.js';
+import { getSingboxDnsRuleSet, pinRemoteRuleUrl } from '../builtin-rules-provider.js';
 
 function sanitizeTag(value) {
     return String(value || '').trim() || 'Untitled';
@@ -314,8 +316,9 @@ function buildRuleSets(rules) {
             tag: sanitizeTag(`${rule.policy}_${rule.value}`),
             type: 'remote',
             format: detectRuleSetFormat(rule.value),
-            url: rule.value,
-            download_detour: 'DIRECT'
+            url: pinRemoteRuleUrl(rule.value),
+            update_interval: '24h',
+            download_detour: DNS_PROXY_GROUP
         }));
 
     const implicitRuleSets = [];
@@ -333,9 +336,10 @@ function buildRuleSets(rules) {
                     type: 'remote',
                     format: 'binary',
                     url: type === 'geoip'
-                        ? `https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${value}.srs`
-                        : `https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${value}.srs`,
-                    download_detour: 'DIRECT'
+                        ? pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${value}.srs`)
+                        : pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${value}.srs`),
+                    update_interval: '24h',
+                    download_detour: DNS_PROXY_GROUP
                 });
             }
         }
@@ -356,18 +360,28 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         : urlsToClashProxies(proxyUrls);
     const proxyOutbounds = proxies.map(buildOutbound).filter(Boolean);
     const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(g => Array.isArray(g.members) && g.members.length > 0));
-    const ruleSetObjects = buildRuleSets(normalizedModel.rules);
+    const ruleSetObjects = [
+        getSingboxDnsRuleSet(),
+        ...buildRuleSets(normalizedModel.rules).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
+    ];
     const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
+    const defaultOutbound = normalizedModel.groups.find(group => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT';
+    const dnsConfig = buildSingboxDnsConfig(normalizedModel.settings?.customDnsOverride, {
+        mode: normalizedModel.settings?.dnsMode,
+        proxyGroup: DNS_PROXY_GROUP
+    });
 
     const config = {
         log: { level: 'info' },
-        dns: {
-            strategy: 'prefer_ipv4',
-            servers: [
-                { tag: 'dns-ali', type: 'udp', server: '223.5.5.5', server_port: 53, detour: 'DIRECT' },
-                { tag: 'dns-google', type: 'udp', server: '8.8.8.8', server_port: 53, detour: 'DIRECT' }
-            ]
-        },
+        dns: dnsConfig,
+        inbounds: [{
+            type: 'tun',
+            tag: 'tun-in',
+            address: ['172.19.0.1/30'],
+            auto_route: true,
+            strict_route: true,
+            stack: 'mixed'
+        }],
         outbounds: [
             { tag: 'DIRECT', type: 'direct' },
             { tag: 'REJECT', type: 'block' },
@@ -376,7 +390,8 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         ],
         route: {
             auto_detect_interface: true,
-            final: normalizedModel.groups[0]?.name || 'DIRECT',
+            default_domain_resolver: dnsConfig.servers[0]?.tag || 'dns-cn-1',
+            final: defaultOutbound,
             rule_set: ruleSetObjects,
             rules: routeRules
         }

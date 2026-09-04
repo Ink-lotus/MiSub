@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateBuiltinSurgeConfig } from '../../functions/modules/subscription/builtin-surge-generator.js';
+import { PINNED_RULE_REVISIONS } from '../../functions/modules/subscription/builtin-rules-provider.js';
 
 describe('Surge 内置生成器', () => {
     describe('基础功能', () => {
@@ -283,8 +284,8 @@ describe('Surge 内置生成器', () => {
         it('应包含高级分流规则', () => {
             const ss = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#TestSS';
             const result = generateBuiltinSurgeConfig(ss);
-            expect(result).toContain('RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Apple.list,🍎 Apple');
-            expect(result).toContain('RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Netflix.list,🎥 流媒体');
+            expect(result).toContain(`RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}/Clash/Apple.list,🍎 Apple`);
+            expect(result).toContain(`RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}/Clash/Netflix.list,🎥 流媒体`);
             expect(result).toContain('GEOIP,CN,DIRECT');
             expect(result).toContain('FINAL,🚀 节点选择,dns-failed');
         });

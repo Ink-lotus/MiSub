@@ -62,14 +62,17 @@ const searchModel = computed({
 </script>
 
 <template>
-  <div class="mb-4 rounded-xl border border-gray-100/80 bg-white/85 p-4 shadow-sm dark:border-white/10 dark:bg-gray-900/70">
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-    <div class="flex items-center gap-3 flex-wrap">
+  <div class="mb-4 min-w-0 rounded-xl border border-gray-100/80 bg-white/85 p-4 shadow-sm dark:border-white/10 dark:bg-gray-900/70">
+    <div class="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex min-w-0 flex-wrap items-center gap-3">
       <h2 class="text-xl font-bold text-gray-900 dark:text-white">{{ t('manualNodes.title') }}</h2>
       <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-semibold text-gray-700 dark:bg-white/10 dark:text-gray-200">{{ manualNodesCount }}</span>
       
       <!-- Mobile Group Filter -->
-       <div class="flex md:hidden items-center overflow-x-auto no-scrollbar gap-2 py-1 max-w-full">
+       <div
+         data-testid="manual-node-mobile-groups"
+         class="flex w-full min-w-0 items-center gap-2 overflow-x-auto py-1 no-scrollbar md:hidden"
+       >
          <button 
            @click="emit('set-group-filter', null)"
            class="px-2.5 py-1 text-xs font-medium misub-radius-md transition-all border shrink-0 whitespace-nowrap"
@@ -95,10 +98,16 @@ const searchModel = computed({
         {{ t('manualNodes.searchResult', { keyword: searchTerm, filtered: filteredNodesCount, total: manualNodesCount }) }}
       </span>
     </div>
-    <div class="flex items-center gap-2 w-full sm:w-auto">
+    <div
+      data-testid="manual-node-toolbar-actions"
+      class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap"
+    >
 
 
-      <div class="relative grow lg:min-w-[240px]">
+      <div
+        data-testid="manual-node-search"
+        class="relative min-w-0 grow basis-full sm:basis-auto lg:min-w-[240px]"
+      >
         <input 
           type="text" 
           v-model="searchModel"

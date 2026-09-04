@@ -3,6 +3,24 @@
  */
 
 import { extractNodeMetadata } from '../modules/utils/metadata-extractor.js';
+import { isLocalProxyEndpoint } from './node-utils.js';
+
+const VIRTUAL_INFO_NODE_PASSWORD = '00000000-0000-0000-0000-000000000000';
+
+function isVirtualInfoProxy(proxy) {
+    if (!proxy || typeof proxy !== 'object') return false;
+
+    const type = String(proxy.type || '').toLowerCase();
+    const server = String(proxy.server || '').trim().toLowerCase();
+    const password = String(proxy.password || '').trim();
+    const name = String(proxy.name || '').trim();
+
+    return type === 'trojan'
+        && server === '127.0.0.1'
+        && Number(proxy.port) === 443
+        && password === VIRTUAL_INFO_NODE_PASSWORD
+        && /(?:流量剩余|到期时间|您的订阅已到期)/.test(name);
+}
 
 /**
  * 解析 URL 查询参数
@@ -133,21 +151,119 @@ function parseVlessUrl(url) {
             }
         }
         
-        // xHTTP 配置 (Loon 3.0+ / Xray 1.8.7+)
-        if (network === 'xhttp') {
-            const xhttpOpts = {};
-            const path = params.get('xhttp-path') || params.get('path');
-            const host = params.get('xhttp-host') || params.get('host') || params.get('sni');
-            if (path) xhttpOpts.path = path;
-            if (host) {
-                xhttpOpts.host = host;
-                xhttpOpts.headers = { Host: host };
+       // xHTTP 配置
+if (network === 'xhttp') {
+    const xhttpOpts = {};
+
+    const path =
+        params.get('xhttp-path') ||
+        params.get('path');
+
+    const host =
+        params.get('xhttp-host') ||
+        params.get('host') ||
+        params.get('sni');
+
+    if (path) {
+        xhttpOpts.path = path;
+    }
+
+    if (host) {
+        xhttpOpts.host = host;
+
+        // 保留 MiSub 原有逻辑
+        xhttpOpts.headers = {
+            Host: host
+        };
+    }
+
+    // XHTTP mode
+    if (params.get('mode')) {
+        xhttpOpts.mode = params.get('mode');
+    }
+
+    /*
+     * Xray XHTTP 分享链接中的高级参数通常保存在 extra JSON 中：
+     *
+     * extra={
+     *   "xPaddingObfsMode": true,
+     *   "xPaddingMethod": "tokenish",
+     *   "xPaddingPlacement": "queryInHeader",
+     *   "xPaddingHeader": "...",
+     *   "xPaddingKey": "..."
+     * }
+     *
+     * 转换为 Mihomo / Clash Meta 的 xhttp-opts 字段。
+     */
+    const extraRaw = params.get('extra');
+
+    if (extraRaw) {
+        try {
+            const extra = JSON.parse(extraRaw);
+
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    extra,
+                    'xPaddingObfsMode'
+                )
+            ) {
+                xhttpOpts['x-padding-obfs-mode'] =
+                    extra.xPaddingObfsMode;
             }
-            if (params.get('mode')) xhttpOpts.mode = params.get('mode');
-            if (Object.keys(xhttpOpts).length > 0) {
-                proxy['xhttp-opts'] = xhttpOpts;
+
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    extra,
+                    'xPaddingMethod'
+                )
+            ) {
+                xhttpOpts['x-padding-method'] =
+                    extra.xPaddingMethod;
             }
+
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    extra,
+                    'xPaddingPlacement'
+                )
+            ) {
+                xhttpOpts['x-padding-placement'] =
+                    extra.xPaddingPlacement;
+            }
+
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    extra,
+                    'xPaddingHeader'
+                )
+            ) {
+                xhttpOpts['x-padding-header'] =
+                    extra.xPaddingHeader;
+            }
+
+            if (
+                Object.prototype.hasOwnProperty.call(
+                    extra,
+                    'xPaddingKey'
+                )
+            ) {
+                xhttpOpts['x-padding-key'] =
+                    extra.xPaddingKey;
+            }
+
+        } catch (e) {
+            // extra 非法时不能让整个订阅转换失败
+            console.warn(
+                '[MiSub] XHTTP extra 参数解析失败:',
+                e
+            );
         }
+    }
+
+    if (Object.keys(xhttpOpts).length > 0) {
+        proxy['xhttp-opts'] = xhttpOpts;
+    }
+}
 
         // gRPC 配置
         if (network === 'grpc') {
@@ -666,7 +782,9 @@ function parseHysteria2Url(url) {
             }
         }
 
-        if (params.get('ports')) proxy.ports = params.get('ports');
+        if (params.get('ports') || params.get('mport')) {
+            proxy.ports = params.get('ports') || params.get('mport');
+        }
         if (params.get('up')) proxy.up = params.get('up');
         if (params.get('down')) proxy.down = params.get('down');
         const fastOpen = params.get('fast_open') || params.get('fast-open');
@@ -886,15 +1004,15 @@ const { server, port } = parseHostPort(serverPart);
 const params = parseQueryParams(url);
 const name = extractName(url);
 
-const proxy = {
-name: name || `WireGuard-${server}`,
-type: 'wireguard',
-server,
-port,
-'private-key': privateKey,
-'remote-dns-resolve': true,
-udp: true
-};
+    const proxy = {
+        name: name || `WireGuard-${server}`,
+        type: 'wireguard',
+        server,
+        port,
+        'private-key': privateKey,
+        'remote-dns-resolve': true,
+        udp: true
+    };
 
 // 公钥
 const publicKey = params.get('publickey') || params.get('public-key');
@@ -902,10 +1020,19 @@ if (publicKey) {
 proxy['public-key'] = publicKey;
 }
 
-// 本地地址
+// 本地地址。保留 WireGuard 的 CIDR 和多地址形状，避免转换往返时丢失
+// 隧道前缀；同时提供 ipv6 兼容字段给需要独立 IPv6 字段的渲染器。
 const address = params.get('address');
 if (address) {
-proxy.ip = address.split(',').map(a => a.trim());
+    const addresses = address
+        .split(',')
+        .map(a => a.trim())
+        .filter(Boolean);
+
+    const ipv6 = addresses.find(a => a.includes(':'));
+
+    if (addresses.length > 0) proxy.ip = addresses;
+    if (ipv6) proxy.ipv6 = ipv6;
 }
 
 // Allowed IPs
@@ -1384,7 +1511,7 @@ export function urlsToClashProxies(urls, options = {}) {
             
             return proxy;
         })
-        .filter(proxy => proxy !== null);
+        .filter(proxy => proxy !== null && (isVirtualInfoProxy(proxy) || !isLocalProxyEndpoint(proxy)));
 }
 
 /**

@@ -109,11 +109,14 @@ const countryCodeMap = {
   'nz': ['🇳🇿', '新西兰', '紐西蘭'],
 };
 
-const filteredSubscriptions = computed(() => {
-  // Only consider items with valid http/https URLs as "Subscriptions"
-  const validSubs = props.allSubscriptions.filter(sub =>
-    sub.url && /^https?:\/\//.test(sub.url)
+const selectableSubscriptions = computed(() => {
+  return (props.allSubscriptions || []).filter(sub =>
+    sub.enabled && sub.url && /^https?:\/\//.test(sub.url)
   );
+});
+
+const filteredSubscriptions = computed(() => {
+  const validSubs = selectableSubscriptions.value;
 
   if (!subscriptionSearchTerm.value) {
     return validSubs;
@@ -324,7 +327,7 @@ const updateSelectedIds = (listName, newIds) => {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          <SubscriptionSelector :subscriptions="allSubscriptions" :filtered-subscriptions="filteredSubscriptions"
+          <SubscriptionSelector :subscriptions="selectableSubscriptions" :filtered-subscriptions="filteredSubscriptions"
             :search-term="subscriptionSearchTerm" :selected-ids="localProfile.subscriptions || []"
             @update:search-term="subscriptionSearchTerm = $event"
             @update:selected-ids="updateSelectedIds('subscriptions', $event)"

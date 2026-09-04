@@ -19,6 +19,7 @@ const DEFAULT_SORT_KEYS = [
 const REGION_CODE_TO_ZH = buildRegionCodeToZhMap();
 const REGION_ZH_TO_CODE = buildZhToCodeMap();
 const warnedRegexRules = new Set();
+const VIRTUAL_INFO_NODE_UUID = '00000000-0000-0000-0000-000000000000';
 
 function warnInvalidRegex(rule, error) {
     const key = `${rule.pattern || ''}|${rule.flags || ''}`;
@@ -268,6 +269,14 @@ function isUselessNode(record) {
     const name = String(record?.name || '').trim();
     const protocol = normalizeProtocol(record?.protocol);
     const server = String(record?.server || '').trim().toLowerCase();
+
+    const isVirtualInfoNode = protocol === 'trojan'
+        && server === '127.0.0.1'
+        && Number(record?.port) === 443
+        && String(record?.url || '').includes(`trojan://${VIRTUAL_INFO_NODE_UUID}@127.0.0.1:443#`)
+        && /(?:流量剩余|到期时间|您的订阅已到期)/.test(name);
+
+    if (isVirtualInfoNode) return false;
 
     if (!name) return true;
 

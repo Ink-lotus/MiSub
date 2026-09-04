@@ -85,6 +85,21 @@ export function convertVlessToUrl(proxy) {
                 }
                 break;
 
+            case 'xhttp':
+                if (proxy['xhttp-opts']) {
+                    if (proxy['xhttp-opts'].path) {
+                        params.set('path', proxy['xhttp-opts'].path);
+                    }
+                    const xhttpHost = proxy['xhttp-opts'].host || proxy['xhttp-opts']['headers']?.Host;
+                    if (xhttpHost) {
+                        params.set('host', xhttpHost);
+                    }
+                    if (proxy['xhttp-opts'].mode) {
+                        params.set('mode', proxy['xhttp-opts'].mode);
+                    }
+                }
+                break;
+
             case 'tcp':
                 // TCP with HTTP header
                 if (proxy['http-opts']) {

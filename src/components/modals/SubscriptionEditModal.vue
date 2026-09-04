@@ -68,8 +68,13 @@ const toggleTag = (tag, type) => {
   if (index !== -1) {
     selectedRules.value.splice(index, 1);
   } else {
+        // 统一转成最小化协议标签，供传统文本过滤引擎识别
+    const normalizedPattern = type === 'protocol' && !String(tag.pattern).toLowerCase().startsWith('proto:')
+      ? `proto:${String(tag.pattern).toLowerCase()}`
+      : tag.pattern;
     selectedRules.value.push({
       ...tag,
+      pattern: normalizedPattern,
       type // 'region' | 'protocol' | 'keyword' | 'custom'
     });
   }
@@ -106,15 +111,13 @@ const removeRule = (index) => {
 const syncToText = () => {
   if (!props.editingSubscription) return;
 
-  const rules = selectedRules.value.map(rule => {
-    if (ruleMode.value === 'keep') {
-      return rule.pattern.startsWith('proto:')
-        ? `keep:${rule.pattern}`
-        : `keep:${rule.pattern}`;
-    }
-    return rule.pattern;
-  });
+  if (ruleMode.value === 'keep') {
+    const keepRules = selectedRules.value.map(rule => `keep:${rule.pattern}`);
+    props.editingSubscription.exclude = keepRules.length > 0 ? keepRules.join('\n') : '';
+    return;
+  }
 
+  const rules = selectedRules.value.map(rule => rule.pattern);
   props.editingSubscription.exclude = rules.join('\n');
 };
 
@@ -145,6 +148,13 @@ const parseFromText = () => {
     let pattern = line;
     if (pattern.toLowerCase().startsWith('keep:')) {
       pattern = pattern.substring(5).trim();
+    }
+
+    // 兼容历史保存的纯 proto:xxx 规则：可视化协议标签必须能正确回显
+    const protocolPreset = presetProtocols.find(p => p.pattern.toLowerCase() === pattern.toLowerCase());
+    if (protocolPreset) {
+      selectedRules.value.push({ ...protocolPreset, type: 'protocol' });
+      return;
     }
 
     // 尝试匹配预设标签

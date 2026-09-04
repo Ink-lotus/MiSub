@@ -3,7 +3,7 @@
  * 处理用户认证和会话管理
  */
 
-import { COOKIE_NAME, SESSION_DURATION } from './config.js';
+import { COOKIE_NAME, SESSION_DURATION, SESSION_RENEW_THRESHOLD } from './config.js';
 import { getCookieSecret, getAdminPassword, getAuthDebugInfo, JSON_BODY_LIMITS, RequestBodyTooLargeError, readJsonWithLimit } from './utils.js';
 import { StorageFactory } from '../storage-adapter.js';
 
@@ -120,8 +120,10 @@ export async function getAuthSessionDiagnostic(request, env) {
         verify: {
             success: false,
             hasTimestamp: false,
-            isExpired: null
-        }
+            isExpired: null,
+            sessionAgeMs: null
+        },
+        shouldRenew: false
     };
 
     const secret = await getCookieSecret(env);
@@ -184,16 +186,49 @@ export async function getAuthSessionDiagnostic(request, env) {
         return result;
     }
 
-    const isExpired = (Date.now() - ts) >= SESSION_DURATION;
+    const sessionAgeMs = Date.now() - ts;
+    const isExpired = sessionAgeMs >= SESSION_DURATION;
     result.verify.isExpired = isExpired;
+    result.verify.sessionAgeMs = sessionAgeMs;
     if (isExpired) {
         result.reason = 'expired';
         return result;
     }
 
     result.isAuthenticated = true;
+    result.shouldRenew = sessionAgeMs >= SESSION_RENEW_THRESHOLD;
     result.reason = 'ok';
     return result;
+}
+
+/**
+ * Renew an authenticated browser session once it reaches the renewal threshold.
+ * The original token timestamp is replaced, making SESSION_DURATION an idle timeout.
+ * @param {Request} request
+ * @param {Object} env
+ * @param {Response} response
+ * @param {Object|null} diagnostic Optional diagnostic from a prior auth check
+ * @returns {Promise<Response>}
+ */
+export async function renewAuthSession(request, env, response, diagnostic = null) {
+    const authDiagnostic = diagnostic || await getAuthSessionDiagnostic(request, env);
+    if (!authDiagnostic?.isAuthenticated || !authDiagnostic.shouldRenew) {
+        return response;
+    }
+
+    const secret = await getCookieSecret(env);
+    if (!secret) return response;
+
+    const token = await createSignedToken(secret, String(Date.now()));
+    const isSecure = request.url.startsWith('https');
+    const cookieString = `${COOKIE_NAME}=${token}; Path=/; HttpOnly; ${isSecure ? 'Secure;' : ''} SameSite=Lax; Max-Age=${SESSION_DURATION / 1000}`;
+    const renewedResponse = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: new Headers(response.headers)
+    });
+    renewedResponse.headers.append('Set-Cookie', cookieString);
+    return renewedResponse;
 }
 
 /**

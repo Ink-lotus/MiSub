@@ -20,7 +20,7 @@ const {
   profiles, editingProfile, isNewProfile, showProfileModal, showDeleteProfilesModal,
   handleProfileToggle, handleAddProfile, handleEditProfile,
   handleSaveProfile, handleDeleteProfile, handleDeleteAllProfiles,
-  profilesCurrentPage, profilesTotalPages, paginatedProfiles, changeProfilesPage
+  filteredProfiles, searchQuery: profileSearchQuery, profilesCurrentPage, profilesTotalPages, paginatedProfiles, changeProfilesPage
 } = useProfiles(markDirty);
 
 // For ProfileModal need access to all subscriptions and nodes
@@ -113,10 +113,13 @@ const handleQRCode = (profileId) => {
 
 
     <ProfilePanel :profiles="profiles" :paginated-profiles="paginatedProfiles" :current-page="profilesCurrentPage"
+      :search-query="profileSearchQuery" :filtered-count="filteredProfiles.length"
+      searchable
       :total-pages="profilesTotalPages" :is-sorting="isProfileSorting" @add="handleAddProfile" @edit="handleEditProfile" @delete="handleDeleteProfile"
       @deleteAll="showDeleteProfilesModal = true" @toggle="handleProfileToggle" @openCopy="handleOpenCopy"
       @preview="handlePreviewProfile" @reorder="handleProfileReorder" @toggle-sort="toggleProfileSorting"
-      @change-page="changeProfilesPage" @viewLogs="handleViewLogs" @qrcode="handleQRCode" />
+      @change-page="changeProfilesPage" @viewLogs="handleViewLogs" @qrcode="handleQRCode"
+      @update-search="profileSearchQuery = $event" />
 
     <LogModal :show="showLogModal" @update:show="showLogModal = $event" :filter-profile-name="logProfileName" />
 

@@ -78,8 +78,11 @@ describe('applyNodeTransformPipeline filters', () => {
             sort: { enabled: false, keys: [] }
         });
 
-        expect(result).toHaveLength(3);
-        expect(result.some(line => line.includes('%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99'))).toBe(false);
+        // 系统虚拟信息节点（trojan + 127.0.0.1:443 + 全零 UUID + 流量/到期字样）自上游
+        // b477c8b 起被 isUselessNode 主动放行，不再被 useless 过滤器剔除；
+        // 不满足虚拟节点特征的到期信息节点（此处 server 为 info.example.com）仍然剔除。
+        expect(result).toHaveLength(4);
+        expect(result.some(line => line.includes('%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99'))).toBe(true);
         expect(result.some(line => line.includes('%E5%A5%97%E9%A4%90%E5%88%B0%E6%9C%9F'))).toBe(false);
     });
 });

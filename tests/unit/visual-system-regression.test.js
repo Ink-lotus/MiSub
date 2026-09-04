@@ -23,6 +23,8 @@ describe('MiSub visual system regression', () => {
     expect(css).toContain('--misub-radius-lg: 0.75rem');
     expect(css).toContain('font-family: var(--font-body)');
     expect(css).toContain('font-feature-settings: "cv01", "ss03"');
+    expect(css).toContain('scroll-behavior: auto');
+    expect(css).not.toMatch(/html\s*\{[^}]*scroll-behavior:\s*smooth/s);
     expect(css).not.toContain('COSMIC GLASS DESIGN SYSTEM');
     expect(css).not.toContain('Premium, Deep, and Fluid');
   });

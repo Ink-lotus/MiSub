@@ -121,18 +121,119 @@ function buildProxyLine(proxy) {
         // Loon TUIC 语法: Name = tuic, Server, Port, Password, UUID, key=value, ...
         return `${name} = tuic, ${server}, ${port}, ${proxy.password || ''}, ${proxy.uuid || ''}, ${extras.join(', ')}`;
     }
+    // if (type === 'wireguard') {
+    //     const extras = [proxy['private-key'] || ''];
+    //     if (proxy['public-key']) extras.push(`public-key=${proxy['public-key']}`);
+    //     if (proxy.ip) {
+    //         const ip = Array.isArray(proxy.ip) ? proxy.ip[0] : proxy.ip;
+    //         extras.push(`self-ip=${ip}`);
+    //     }
+    //     if (proxy.reserved) {
+    //         const reserved = Array.isArray(proxy.reserved) ? proxy.reserved.join('/') : proxy.reserved;
+    //         extras.push(`client-id=${reserved}`);
+    //     }
+    //     return `${name} = wireguard, ${server}, ${port}, ${extras.join(', ')}`;
+    // }
     if (type === 'wireguard') {
-        const extras = [proxy['private-key'] || ''];
-        if (proxy['public-key']) extras.push(`public-key=${proxy['public-key']}`);
+        if (!proxy['private-key'] || !proxy['public-key']) {
+            return null;
+        }
+        const extras = [];
+        // IPv4
         if (proxy.ip) {
-            const ip = Array.isArray(proxy.ip) ? proxy.ip[0] : proxy.ip;
-            extras.push(`self-ip=${ip}`);
+            const ipv4 = Array.isArray(proxy.ip)
+                ? proxy.ip.find(ip => !String(ip).includes(':'))
+                : proxy.ip;
+    
+            if (ipv4) {
+                extras.push(`interface-ip=${ipv4}`);
+            }
         }
+    
+        // IPv6
+        if (proxy.ipv6) {
+            const ipv6 = Array.isArray(proxy.ipv6)
+                ? proxy.ipv6.find(Boolean)
+                : proxy.ipv6;
+    
+            if (ipv6) {
+                extras.push(`interface-ipV6=${ipv6}`);
+            }
+        }
+    
+        // Private Key
+        extras.push(`private-key="${proxy['private-key']}"`);
+    
+        // MTU
+        if (proxy.mtu) {
+            extras.push(`mtu=${proxy.mtu}`);
+        }
+    
+        // DNS
+        if (proxy.dns) {
+            const dnsList = Array.isArray(proxy.dns)
+                ? proxy.dns.filter(Boolean)
+                : [proxy.dns];
+    
+            const dns4 = dnsList.find(dns => !String(dns).includes(':'));
+            const dns6 = dnsList.find(dns => String(dns).includes(':'));
+    
+            if (dns4) {
+                extras.push(`dns=${dns4}`);
+            }
+    
+            if (dns6) {
+                extras.push(`dnsV6=${dns6}`);
+            }
+        }
+    
+        // Peer
+        const peer = [];
+    
+        peer.push(`public-key="${proxy['public-key']}"`);
+    
+        if (proxy['preshared-key']) {
+            peer.push(`preshared-key="${proxy['preshared-key']}"`);
+        }
+    
         if (proxy.reserved) {
-            const reserved = Array.isArray(proxy.reserved) ? proxy.reserved.join('/') : proxy.reserved;
-            extras.push(`client-id=${reserved}`);
+            const reserved = Array.isArray(proxy.reserved)
+                ? proxy.reserved
+                : String(proxy.reserved)
+                    .split(/[\/,]/)
+                    .map(v => Number(v.trim()))
+                    .filter(Number.isFinite);
+    
+            if (reserved.length) {
+                peer.push(`reserved=[${reserved.join(',')}]`);
+            }
         }
-        return `${name} = wireguard, ${server}, ${port}, ${extras.join(', ')}`;
+    
+        if (proxy['allowed-ips']) {
+            const allowedIps = Array.isArray(proxy['allowed-ips'])
+                ? proxy['allowed-ips'].join(', ')
+                : proxy['allowed-ips'];
+    
+            peer.push(`allowed-ips="${allowedIps}"`);
+        } else {
+            peer.push(
+                proxy.ipv6
+                    ? 'allowed-ips="0.0.0.0/0, ::/0"'
+                    : 'allowed-ips="0.0.0.0/0"'
+            );
+        }
+    
+        // IPv6 endpoint 加 []
+        const endpointHost =
+            String(server).includes(':') && !String(server).startsWith('[')
+                ? `[${server}]`
+                : server;
+    
+        peer.push(`endpoint=${endpointHost}:${port}`);
+    
+        extras.push(`peers=[{${peer.join(',')}}]`);
+    
+        return `${name} = wireguard,${extras.join(',')}`;
     }
     if (type === 'anytls') {
         const extras = [proxy.password || ''];
@@ -169,14 +270,32 @@ function buildGroupLine(group) {
     return `${group.name} = select, ${members}`;
 }
 
+// function buildRuleLine(rule) {
+//     const type = String(rule.type || '').toUpperCase();
+//     if (!type) return null;
+//     if (type === 'RULE-SET') return `RULE-SET,${rule.value},${rule.policy}`;
+//     if (type === 'MATCH' || type === 'FINAL') return `FINAL,${rule.policy}`;
+//     if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}`;
+//     return `${type},${rule.value},${rule.policy}`;
+// }
 function buildRuleLine(rule) {
     const type = String(rule.type || '').toUpperCase();
-    if (!type) return null;
-    if (type === 'RULE-SET') return `RULE-SET,${rule.value},${rule.policy}`;
-    if (type === 'MATCH' || type === 'FINAL') return `FINAL,${rule.policy}`;
+    if (!type || type === 'RULE-SET') return null;
+    if (type === 'MATCH' || type === 'FINAL') {
+        return `FINAL,${rule.policy}`;
+    }
     const modifiers = ruleModifierSuffix(rule);
-    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}${modifiers}`;
+    if (type === 'GEOIP') {
+        return `GEOIP,${rule.value || 'CN'},${rule.policy}${modifiers}`;
+    }
     return `${type},${rule.value},${rule.policy}${modifiers}`;
+}
+
+function buildRemoteRuleLine(rule) {
+    const type = String(rule.type || '').toUpperCase();
+    if (type !== 'RULE-SET') return null;
+    if (!rule.value || !rule.policy) return null;
+    return `${rule.value}, policy=${rule.policy}, enabled=true`;
 }
 
 export function renderLoonFromTemplateModel(model, options = {}) {
@@ -189,17 +308,39 @@ export function renderLoonFromTemplateModel(model, options = {}) {
     const proxies = Array.isArray(normalizedModel.proxies) && normalizedModel.proxies.length > 0
         ? normalizedModel.proxies
         : urlsToClashProxies(proxyUrls);
+    const ruleLines = normalizedModel.rules
+        .filter(rule =>
+            String(rule.type || '').toUpperCase() !== 'RULE-SET'
+        )
+        .map(buildRuleLine)
+        .filter(Boolean);
+    
+    const remoteRuleLines = normalizedModel.rules
+        .filter(rule =>
+            rule.source === 'remote' ||
+            String(rule.type || '').toUpperCase() === 'RULE-SET'
+        )
+        .map(buildRemoteRuleLine)
+        .filter(Boolean);
 
     return [
         '[General]',
-        'ipv6 = false',
-        'dns-server = 223.5.5.5, 114.114.114.114',
-        'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local',
+        'ip-mode = ipv4-preferred',
+        'dns-server = 223.5.5.5, 119.29.29.29',
+        'doh-server = https://223.5.5.5/resolve,https://sm2.doh.pub/dns-query',
+        'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local, elpass.app, e.crashlytics.com, captive.apple.com, ::ffff:0:0:0:0/1, ::ffff:128:0:0:0/1, fe80::/10, fc00::/7, ::1/128',
+        'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10',
+        'interface-mode = auto',
+        'disable-stun = true',
         'allow-udp-proxy = true',
-        'allow-wifi-access = true',
+        'allow-wifi-access = false',
         'wifi-access-http-port = 7222',
         'wifi-access-socks5-port = 7221',
-        'resource-parser = https://raw.githubusercontent.com/sub-store-org/Sub-Store-Resources/master/scripts/sub-store-parser.js',
+        'resource-parser = https://github.com/sub-store-org/Sub-Store/releases/latest/download/sub-store-parser.loon.min.js',
+        'geoip-url = https://gitlab.com/Masaiki/GeoIP2-CN/-/raw/release/Country.mmdb',
+        'proxy-test-url = http://www.gstatic.com/generate_204',
+        'internet-test-url = http://www.apple.com/library/test/success.html',
+
         '',
         '[Proxy]',
         ...proxies.map(buildProxyLine).filter(Boolean),
@@ -211,7 +352,11 @@ export function renderLoonFromTemplateModel(model, options = {}) {
             .filter(Boolean),
         '',
         '[Rule]',
-        ...normalizedModel.rules.map(buildRuleLine).filter(Boolean),
+        ...ruleLines,
+        '',
+        '[Remote Rule]',
+        // ...normalizedModel.rules.map(buildRuleLine).filter(Boolean),
+        ...remoteRuleLines,
         ''
     ].join('\n');
 }

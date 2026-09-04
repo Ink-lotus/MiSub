@@ -212,9 +212,14 @@ MATCH,MyGroup
             storageAdapter
         });
 
-        expect(yaml.load(result.content).dns.nameserver).toEqual([
-            'https://dns.alidns.com/dns-query',
-            'https://doh.pub/dns-query'
+        const dns = yaml.load(result.content).dns;
+        // 本用例的意图是「customDns 只作用于内置预设，不作用于远程模板」：
+        // 断言用户配的 9.9.9.9 没有泄漏进来，DNS 仍为内置默认值。
+        // 内置默认值自合并上游后由 resolveSafeDnsConfig 合成（原为 alidns / doh.pub 硬编码）。
+        expect(dns.nameserver).not.toContain('9.9.9.9');
+        expect(dns.nameserver).toEqual([
+            'udp://8.8.8.8:53#🌐 DNS 出口',
+            'udp://1.1.1.1:53#🌐 DNS 出口'
         ]);
     });
 

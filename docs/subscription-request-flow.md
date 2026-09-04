@@ -86,7 +86,7 @@ API 路径 `/api/*` 总是优先进入 `handleApiRequest(request, env)`，不会
 2. 按 `customId` 或 `id` 查找订阅组。
 3. 订阅组必须存在且 `enabled` 为真。
 4. 如果设置了 `expiresAt` 且已过期：
-   - 只返回一个过期提示伪节点。
+   - 只返回一个可解析的过期提示占位节点（节点名称为“您的订阅已到期”）。
    - 文件名仍使用订阅组名称。
 5. 未过期时：
    - 按订阅组中 `subscriptions` 的顺序选择 HTTP 订阅源。
@@ -307,12 +307,14 @@ HTTP 订阅源定义为 URL 以 `http` 开头的订阅项。
 8. 应用全局 include/exclude。
 9. 执行 YAML 安全净化 `sanitizeNodeForYaml()`。
 10. 根据配置补齐 flag emoji。
-11. 如果存在流量剩余伪节点或过期伪节点，将其插入最前。
+11. 如果存在流量剩余、到期时间或过期伪节点，将其插入最前。
 
-流量剩余伪节点：
+流量与到期时间伪节点：
 
 - 当未过期、`config.enableTrafficNode !== false` 且目标订阅源有有效 `userInfo.total` 时生成。
-- 名称格式：`流量剩余 ≫ {formatBytes(remaining)}`。
+- 剩余流量名称格式：`流量剩余 ≫ {formatBytes(remaining)}`。
+- 到期时间优先使用订阅组 `expiresAt`；未设置时按 `mergeExpireStrategy` 合并订阅源的 `userInfo.expire`。
+- 到期时间名称格式：`到期时间 ≫ YYYY-MM-DD`（Asia/Shanghai 日期）。
 
 ## 12. 输出分支
 

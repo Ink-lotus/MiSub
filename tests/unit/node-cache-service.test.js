@@ -9,7 +9,9 @@ import {
     clearAllNodeCaches,
     createCacheHeaders,
     triggerBackgroundRefresh,
-    getCacheConfig
+    getCacheConfig,
+    isSuspiciousNodeCountDrop,
+    isLikelyPartialAggregateNodeList
 } from '../../functions/services/node-cache-service.js';
 
 function createStorage(initialData = {}) {
@@ -90,6 +92,62 @@ describe('node-cache-service', () => {
         } finally {
             warnSpy.mockRestore();
         }
+    });
+
+    it('refuses to overwrite a healthy large cache after a severe node-count drop', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const healthyNodes = Array.from({ length: 156 }, (_, index) =>
+            `trojan://password${index}@node${index}.example.com:443#Node-${index}`
+        ).join('\n') + '\n';
+        const storage = createStorage({
+            cache: {
+                nodes: healthyNodes,
+                timestamp: Date.now(),
+                nodeCount: 156,
+                sources: ['Airport']
+            }
+        });
+
+        try {
+            const updated = await setCache(
+                storage,
+                'cache',
+                'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111\n',
+                ['Airport']
+            );
+            const cached = await getCache(storage, 'cache');
+
+            expect(updated).toBe(false);
+            expect(cached.data.nodeCount).toBe(156);
+            expect(cached.data.nodes).toBe(healthyNodes);
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[Cache] Refusing to overwrite cache cache after suspicious node-count drop (156 -> 1)'
+            );
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('allows normal node-count changes and only flags severe drops from established caches', () => {
+        expect(isSuspiciousNodeCountDrop(156, 1)).toBe(true);
+        expect(isSuspiciousNodeCountDrop(156, 80)).toBe(false);
+        expect(isSuspiciousNodeCountDrop(9, 1)).toBe(false);
+        expect(isSuspiciousNodeCountDrop(0, 1)).toBe(false);
+    });
+
+    it('recognizes the traffic-node plus UUID-node signature of a partial aggregate result', async () => {
+        const partial = [
+            'trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99',
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111'
+        ].join('\n') + '\n';
+        const storage = createStorage();
+
+        expect(isLikelyPartialAggregateNodeList(partial)).toBe(true);
+        expect(await setCache(storage, 'cache', partial, ['Airport'])).toBe(false);
+        expect(await getCache(storage, 'cache')).toEqual({ data: null, status: 'miss' });
+        expect(isLikelyPartialAggregateNodeList(
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#HK\n'
+        )).toBe(false);
     });
 
     it('preserves only requested subscription protective caches when clearing node caches', async () => {

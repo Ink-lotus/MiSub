@@ -50,6 +50,15 @@ describe('node-utils', () => {
         expect(proxies[0].name).toContain('台湾 1');
     });
 
+    it('urlsToClashProxies 应过滤本机回环出口', () => {
+        const proxies = urlsToClashProxies([
+            'trojan://fake@127.0.0.1:443#伪节点',
+            'trojan://real@example.com:443#真实节点'
+        ]);
+
+        expect(proxies.map(proxy => proxy.server)).toEqual(['example.com']);
+    });
+
     it('TUIC 节点密码包含 URL 保留字符时应保持可回环解析', () => {
         const proxy = {
             name: 'TUIC Special',
@@ -118,6 +127,37 @@ describe('node-utils', () => {
                 mode: 'tls',
                 host: 'abcd.apple.com:215275'
             }
+        });
+    });
+
+    it('VLESS + XHTTP Clash 节点的 xhttp-opts 应在 URL 转换中保留 path/host/mode 并可回环解析', () => {
+        const proxy = {
+            name: 'XHTTP-1',
+            type: 'vless',
+            server: 'host.example.com',
+            port: 443,
+            uuid: 'u-u-i-d',
+            network: 'xhttp',
+            tls: true,
+            'xhttp-opts': {
+                path: '/argo',
+                host: 'example.org',
+                mode: 'packet-up'
+            }
+        };
+
+        const url = convertClashProxyToUrl(proxy);
+        const proxies = urlsToClashProxies([url]);
+
+        expect(url).toContain('type=xhttp');
+        expect(url).toContain('path=%2Fargo');
+        expect(url).toContain('host=example.org');
+        expect(url).toContain('mode=packet-up');
+        expect(proxies).toHaveLength(1);
+        expect(proxies[0]['xhttp-opts']).toMatchObject({
+            path: '/argo',
+            host: 'example.org',
+            mode: 'packet-up'
         });
     });
 });

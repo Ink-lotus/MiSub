@@ -56,4 +56,53 @@ describe('resolveNodeListWithCache', () => {
         expect(refreshNodes).toHaveBeenCalledTimes(1);
         expect(refreshNodes).toHaveBeenCalledWith(false);
     });
+
+    it('ignores a fresh aggregate cache that is far below the known subscription node count', async () => {
+        const refreshNodes = vi.fn().mockResolvedValue('trojan://fresh@example.com:443#Fresh');
+
+        const result = await resolveNodeListWithCache({
+            storageAdapter: createStorage({
+                nodes: 'trojan://cached@example.com:443#Cached\n',
+                timestamp: Date.now(),
+                nodeCount: 2,
+                sources: ['airport']
+            }),
+            cacheKey: 'node_cache_token_test',
+            forceRefresh: false,
+            refreshNodes,
+            context: {},
+            targetMisubsCount: 1,
+            expectedNodeCount: 156
+        });
+
+        expect(result.combinedNodeList).toBe('trojan://fresh@example.com:443#Fresh');
+        expect(result.cacheHeaders['X-Cache-Status']).toBe('MISS');
+        expect(refreshNodes).toHaveBeenCalledWith(false);
+    });
+
+    it('ignores the known partial-result signature even when no expected node count is available', async () => {
+        const refreshNodes = vi.fn().mockResolvedValue('trojan://fresh@example.com:443#Fresh');
+        const partialNodes = [
+            'trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99',
+            'vless://11111111-1111-1111-1111-111111111111@example.com:443#11111111-1111-1111-1111-111111111111'
+        ].join('\n') + '\n';
+
+        const result = await resolveNodeListWithCache({
+            storageAdapter: createStorage({
+                nodes: partialNodes,
+                timestamp: Date.now(),
+                nodeCount: 2,
+                sources: ['airport']
+            }),
+            cacheKey: 'node_cache_token_test',
+            forceRefresh: false,
+            refreshNodes,
+            context: {},
+            targetMisubsCount: 1
+        });
+
+        expect(result.combinedNodeList).toBe('trojan://fresh@example.com:443#Fresh');
+        expect(result.cacheHeaders['X-Cache-Status']).toBe('MISS');
+        expect(refreshNodes).toHaveBeenCalledWith(false);
+    });
 });

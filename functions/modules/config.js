@@ -11,7 +11,8 @@ export const KV_KEY_SETTINGS = 'worker_settings_v1';
 
 // Auth
 export const COOKIE_NAME = 'auth_session';
-export const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const SESSION_RENEW_THRESHOLD = 7 * 24 * 60 * 60 * 1000; // renew after 7 days of activity
 export const DEFAULT_SUBCONVERTER_BACKEND = 'subapi.cmliussss.net';
 
 // Default settings

@@ -58,6 +58,7 @@ function createEnv(settings = {}) {
 describe('WebDAV backup payload and restore', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.unstubAllGlobals();
   });
 
   it('builds data-only payload with complete business collections but without settings', async () => {
@@ -149,5 +150,43 @@ describe('WebDAV backup payload and restore', () => {
     expect(settings.webdavBackup).toEqual(currentWebdav);
     expect(settings.adminPassword).toBeUndefined();
     expect(settings.cookieSecret).toBeUndefined();
+  });
+
+  it('normalizes PROPFIND hrefs relative to the configured endpoint before fetching a backup', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(`<?xml version="1.0"?>
+        <d:multistatus xmlns:d="DAV:">
+          <d:response><d:href>/remote.php/dav/files/user/MiSub/</d:href></d:response>
+          <d:response><d:href>https://dav.example/remote.php/dav/files/user/MiSub/misub-backup-2026-08-09%2012-00-00.json</d:href></d:response>
+        </d:multistatus>`, { status: 207 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        type: 'misub-backup',
+        version: 1,
+        scope: 'dataOnly',
+        data: { subscriptions: [], profiles: [], ruleTemplates: [], settings: null }
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { listWebdavBackupFiles, fetchWebdavBackupFile } = await import('../../functions/modules/webdav-backup-handler.js');
+    const env = createEnv();
+    const files = await listWebdavBackupFiles(env);
+
+    expect(files).toEqual([{
+      path: '/MiSub/misub-backup-2026-08-09 12-00-00.json',
+      name: 'misub-backup-2026-08-09 12-00-00.json'
+    }]);
+
+    await fetchWebdavBackupFile(env, files[0].path);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://dav.example/remote.php/dav/files/user/MiSub');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://dav.example/remote.php/dav/files/user/MiSub/misub-backup-2026-08-09%2012-00-00.json');
+  });
+
+  it('formats backup filenames in UTC+8', async () => {
+    const { formatBackupFilename } = await import('../../functions/modules/webdav-backup-handler.js');
+    const now = new Date('2026-08-10T16:30:45.000Z');
+
+    expect(formatBackupFilename('backup-{datetime}-{date}.json', now))
+      .toBe('backup-2026-08-11-00-30-45-2026-08-11.json');
   });
 });

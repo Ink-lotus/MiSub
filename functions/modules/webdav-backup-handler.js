@@ -22,6 +22,7 @@ export const BACKUP_SCOPES = {
 
 const RESTORE_SNAPSHOT_KEY = 'misub_restore_snapshot_latest';
 const BACKUP_FILENAME_PREFIX = 'misub-backup-';
+const BACKUP_TIMEZONE_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_WEBDAV_CONFIG = {
     enabled: false,
     endpoint: '',
@@ -266,6 +267,31 @@ function joinWebdavPath(base, path) {
     return [trimmedBase, ...parts].join('/');
 }
 
+function decodeWebdavPathSegment(segment) {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+}
+
+function normalizeWebdavHref(endpoint, href) {
+    const endpointUrl = new URL(endpoint);
+    const hrefUrl = new URL(String(href || '').replace(/&amp;/gi, '&'), `${endpointUrl.origin}/`);
+
+    // A PROPFIND response can contain absolute URLs. Never turn a URL from a
+    // different origin into a path that will later be fetched with credentials.
+    if (hrefUrl.origin !== endpointUrl.origin) return null;
+
+    const endpointPath = endpointUrl.pathname.replace(/\/+$/, '');
+    const hrefPath = hrefUrl.pathname;
+    if (hrefPath !== endpointPath && !hrefPath.startsWith(`${endpointPath}/`)) return null;
+
+    const relativePath = hrefPath.slice(endpointPath.length);
+    const decodedParts = relativePath.split('/').filter(Boolean).map(decodeWebdavPathSegment);
+    return decodedParts.length ? `/${decodedParts.join('/')}` : '/';
+}
+
 function toBasicAuth(username, password) {
     const raw = `${username || ''}:${password || ''}`;
     if (typeof btoa === 'function') {
@@ -303,10 +329,12 @@ async function ensureRemoteDirectory(config) {
     }
 }
 
-function formatBackupFilename(template = DEFAULT_WEBDAV_CONFIG.filenameTemplate) {
-    const now = new Date();
-    const datetime = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const date = now.toISOString().slice(0, 10);
+export function formatBackupFilename(template = DEFAULT_WEBDAV_CONFIG.filenameTemplate, now = new Date()) {
+    // Keep backup names stable at UTC+8 regardless of the Worker/runtime
+    // timezone (Cloudflare Workers normally exposes UTC).
+    const utcPlus8 = new Date(now.getTime() + BACKUP_TIMEZONE_OFFSET_MS);
+    const datetime = utcPlus8.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const date = utcPlus8.toISOString().slice(0, 10);
     const safeTemplate = template || DEFAULT_WEBDAV_CONFIG.filenameTemplate;
     return safeTemplate.replace(/\{datetime\}/g, datetime).replace(/\{date\}/g, date);
 }
@@ -440,9 +468,9 @@ export async function listWebdavBackupFiles(env) {
 
     const xml = await response.text();
     const hrefs = Array.from(xml.matchAll(/<[^:>]*:?href[^>]*>([^<]+)<\/[^:>]*:?href>/gi))
-        .map(match => decodeURIComponent(match[1] || ''));
+        .map(match => normalizeWebdavHref(config.endpoint, match[1]))
+        .filter(Boolean);
     const files = hrefs
-        .map(href => href.replace(/^https?:\/\/[^/]+/i, ''))
         .filter(href => href.endsWith('.json') && href.includes(BACKUP_FILENAME_PREFIX))
         .map(href => ({
             path: href,

@@ -2,6 +2,7 @@ import yaml from 'js-yaml';
 import { clashFix } from '../../../utils/format-utils.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
 import { ruleModifierSuffix } from './rule-modifiers.js';
+import { DNS_PROXY_GROUP, resolveSafeDnsConfig } from '../safe-dns.js';
 
 function mapGroupType(type) {
     const normalized = String(type || '').trim().toLowerCase();
@@ -162,22 +163,16 @@ export function renderClashFromTemplateModel(model) {
 
     const config = {
         'mixed-port': 7890,
-        'allow-lan': true,
+        'allow-lan': false,
+        'bind-address': '127.0.0.1',
+        'ipv6': false,
         'mode': 'rule',
         'log-level': 'info',
-        'external-controller': ':9090',
-        'dns': {
-            'enable': true,
-            'listen': '0.0.0.0:1053',
-            'default-nameserver': ['223.5.5.5', '1.1.1.1'],
-            'enhanced-mode': 'fake-ip',
-            'fake-ip-range': '198.18.0.1/16',
-            'fake-ip-filter': ['*.lan', '*.localhost'],
-            'nameserver': [
-                'https://dns.alidns.com/dns-query',
-                'https://doh.pub/dns-query'
-            ]
-        },
+        'external-controller': '127.0.0.1:9090',
+        'dns': resolveSafeDnsConfig(normalizedModel.settings?.customDnsOverride, {
+            mode: normalizedModel.settings?.dnsMode,
+            proxyGroup: DNS_PROXY_GROUP
+        }),
         'proxies': normalizedModel.proxies,
         'proxy-groups': normalizedModel.groups
             .filter(group =>

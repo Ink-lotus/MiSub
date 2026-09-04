@@ -80,6 +80,10 @@ export function determineTargetFormat(userAgent, searchParams) {
 
     // Mapping array to ensure priority order
     const uaMapping = [
+        // Hiddify UA 通常同时包含 ClashMeta / sing-box，必须优先匹配客户端本身。
+        // 通用订阅默认使用 sing-box JSON；如需 Clash 可显式传入 target=clash。
+        ['hiddify', 'singbox'],
+
         // Mihomo/Meta Core Clients -> Clash
         ['flclash', 'clash'],
         ['flyclash', 'clash'],
@@ -105,7 +109,6 @@ export function determineTargetFormat(userAgent, searchParams) {
         ['月兔', 'clash'],
         ['sing-box', 'singbox'],
         ['singbox', 'singbox'],
-        ['hiddify', 'clash'],
         // Shadowrocket / 小火箭 prefers raw base64 subscription content for adaptive links.
         // Explicit URL params such as ?clash=1 or ?target=surge still override this mapping.
         ['shadowrocket', 'base64'],

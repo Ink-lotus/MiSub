@@ -16,6 +16,27 @@ const CACHE_CONFIG = {
     BACKGROUND_REFRESH_TIMEOUT: 25000    // 后台刷新超时：25 秒
 };
 
+// A truncated upstream response can still contain a few valid nodes. Protect
+// a previously healthy large cache from being replaced by that partial result.
+const SHRINK_PROTECTION_MIN_CACHED_NODES = 10;
+const SHRINK_PROTECTION_MAX_RATIO = 0.3;
+
+export function isSuspiciousNodeCountDrop(previousCount, nextCount) {
+    const previous = Number(previousCount);
+    const next = Number(nextCount);
+    if (!Number.isFinite(previous) || !Number.isFinite(next)) return false;
+    if (previous < SHRINK_PROTECTION_MIN_CACHED_NODES || next >= previous) return false;
+    return next / previous < SHRINK_PROTECTION_MAX_RATIO;
+}
+
+export function isLikelyPartialAggregateNodeList(nodes) {
+    const lines = String(nodes || '').split(/\r?\n+/).map(line => line.trim()).filter(Boolean);
+    if (lines.length < 2 || lines.length > 3) return false;
+    const hasTrafficNode = lines.some(line => /@127\.0\.0\.1(?::443)?(?:[/?#]|$)/i.test(line));
+    const hasUuidNamedNode = lines.some(line => /^(?:vless|vmess|trojan):\/\/.*#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:$|[?&])/i.test(line));
+    return hasTrafficNode && hasUuidNamedNode;
+}
+
 /**
  * 生成缓存键
  * @param {string} type - 缓存类型 ('profile' | 'token')
@@ -85,13 +106,21 @@ export async function getCache(storageAdapter, cacheKey) {
 export async function setCache(storageAdapter, cacheKey, nodes, sources = []) {
     try {
         const nodeCount = nodes.split('\n').filter(line => line.trim()).length;
+        if (isLikelyPartialAggregateNodeList(nodes)) {
+            console.warn(`[Cache] Refusing to cache a likely partial aggregate node list for ${cacheKey}`);
+            return false;
+        }
+        const existing = await storageAdapter.get(cacheKey);
+        const existingNodeCount = existing?.nodeCount || String(existing?.nodes || '').split('\n').filter(line => line.trim()).length;
         if (nodeCount === 0) {
-            const existing = await storageAdapter.get(cacheKey);
-            const existingNodeCount = existing?.nodeCount || String(existing?.nodes || '').split('\n').filter(line => line.trim()).length;
             if (existingNodeCount > 0) {
                 console.warn(`[Cache] Refusing to overwrite non-empty cache ${cacheKey} with empty node list`);
                 return false;
             }
+        }
+        if (isSuspiciousNodeCountDrop(existingNodeCount, nodeCount)) {
+            console.warn(`[Cache] Refusing to overwrite cache ${cacheKey} after suspicious node-count drop (${existingNodeCount} -> ${nodeCount})`);
+            return false;
         }
 
         const cacheEntry = {

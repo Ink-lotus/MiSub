@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDataStore } from '../stores/useDataStore';
 import { useToastStore } from '../stores/toast';
@@ -19,11 +19,29 @@ export function useProfiles(markDirty) {
   const profilesCurrentPage = ref(1);
   const profilesItemsPerPage = 6;
 
-  const profilesTotalPages = computed(() => Math.ceil(profiles.value.length / profilesItemsPerPage));
+  const searchQuery = ref('');
+  const filteredProfiles = computed(() => {
+    const query = searchQuery.value.trim().toLowerCase();
+    if (!query) return profiles.value;
+
+    return profiles.value.filter((profile) => [
+      profile.name,
+      profile.description,
+      profile.desc,
+      profile.remark,
+      profile.customId
+    ].some(value => String(value || '').toLowerCase().includes(query)));
+  });
+
+  const profilesTotalPages = computed(() => Math.ceil(filteredProfiles.value.length / profilesItemsPerPage));
   const paginatedProfiles = computed(() => {
     const start = (profilesCurrentPage.value - 1) * profilesItemsPerPage;
     const end = start + profilesItemsPerPage;
-    return profiles.value.slice(start, end);
+    return filteredProfiles.value.slice(start, end);
+  });
+
+  watch(searchQuery, () => {
+    profilesCurrentPage.value = 1;
   });
 
   function changeProfilesPage(page) {
@@ -230,6 +248,8 @@ export function useProfiles(markDirty) {
 
   return {
     profiles,
+    filteredProfiles,
+    searchQuery,
     editingProfile,
     isNewProfile,
     showProfileModal,

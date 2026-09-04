@@ -1,5 +1,5 @@
 // FILE: src/composables/useSubscriptions.js
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDataStore } from '../stores/useDataStore';
 import { useToastStore } from '../stores/toast.js';
@@ -19,6 +19,22 @@ export function useSubscriptions(markDirty) {
   // Filtered computed property: Only http/https links are "Subscriptions"
   const subscriptions = computed(() => {
     return (allSubscriptions.value || []).filter(sub => sub.url && /^https?:\/\//.test(sub.url));
+  });
+
+  const searchQuery = ref('');
+  const filteredSubscriptions = computed(() => {
+    const query = searchQuery.value.trim().toLowerCase();
+    if (!query) return subscriptions.value;
+
+    return subscriptions.value.filter((sub) => [
+      sub.name,
+      sub.description,
+      sub.remark,
+      sub.note,
+      sub.website,
+      sub.url,
+      sub.customId
+    ].some(value => String(value || '').toLowerCase().includes(query)));
   });
 
   const subsCurrentPage = ref(1);
@@ -44,12 +60,15 @@ export function useSubscriptions(markDirty) {
     }, 0);
   });
 
-  const subsTotalPages = computed(() => Math.ceil(subscriptions.value.length / subsItemsPerPage));
+  const subsTotalPages = computed(() => Math.ceil(filteredSubscriptions.value.length / subsItemsPerPage));
   const paginatedSubscriptions = computed(() => {
     const start = (subsCurrentPage.value - 1) * subsItemsPerPage;
     const end = start + subsItemsPerPage;
-    // Use the filtered list for pagination
-    return subscriptions.value.slice(start, end);
+    return filteredSubscriptions.value.slice(start, end);
+  });
+
+  watch(searchQuery, () => {
+    subsCurrentPage.value = 1;
   });
 
   function changeSubsPage(page) {
@@ -396,6 +415,8 @@ export function useSubscriptions(markDirty) {
 
   return {
     subscriptions,
+    filteredSubscriptions,
+    searchQuery,
     subsCurrentPage,
     subsTotalPages,
     paginatedSubscriptions,
