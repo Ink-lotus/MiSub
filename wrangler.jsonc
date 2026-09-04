@@ -9,11 +9,14 @@
   // 二进制放旧几个月后当天日期就越过上限，`wrangler pages dev` 直接起不来：
   //   X [ERROR] This Worker requires compatibility date "<今天>",
   //             but the newest date supported by this server binary is "<上限>".
-  // 取值沿用仓库原先在 wrangler-cf-pages.toml 里声明的日期。
-  // 若 Cloudflare Pages 面板设的是更新的日期或 "Latest"，改这里与之对齐；
-  // 但不得超过当前 workerd 支持的上限，否则本地又起不来。
-  "compatibility_date": "2024-04-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // 取值对齐 Cloudflare Pages 面板的生产配置（由 `wrangler pages download config`
+  // 导出核对，见 .wrangler/cf-downloaded-config.toml）。改动时不得超过当前 workerd
+  // 支持的上限，否则本地又起不来；上限随 wrangler 版本走，必要时先升 wrangler。
+  //
+  // 同样对齐生产：不设 compatibility_flags。生产未开 nodejs_compat，
+  // 本地若开着就比生产宽松，某类只在生产炸的问题本地测不出来。
+  // 项目代码不 import 任何 node: 内建模块，去掉它不影响运行。
+  "compatibility_date": "2026-07-20",
 
   // 本地 KV 绑定。没有它 StorageFactory.resolveKV 返回 null，
   // 整个后端退化成 NoopStorageAdapter：写入静默丢弃、重启即空，
