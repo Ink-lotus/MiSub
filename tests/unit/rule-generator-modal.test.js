@@ -72,6 +72,8 @@ describe('RuleGeneratorModal', () => {
       .map(button => button.text());
 
     expect(headings).toEqual([
+      // 只读说明段，不承接卡片、不产出策略组，排在最前是因为 DNS 解析先于规则匹配
+      expect.stringContaining('🌐 DNS 出口'),
       expect.stringContaining('🔧 前置修正'),
       expect.stringContaining('🧩 灵活桶'),
       expect.stringContaining('🛑 广告拦截'),
@@ -391,14 +393,15 @@ describe('BucketPanel', () => {
     sources: [{ id: 's1', kind: 'remote', value: 'https://example.com/openai.list' }]
   };
 
-  function mountPanel() {
+  function mountPanel(overrides = {}) {
     return mount(BucketPanel, {
       props: {
         cards: [parent, kid],
         headModifiers: { localAreaNetwork: true },
-        collapsed: { prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
+        collapsed: { dns: false, prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
         dragEnabled: true,
-        moveOptions: []
+        moveOptions: [],
+        ...overrides
       },
       global: {
         plugins: [createI18n({ initialLocale: 'zh-CN' })],
@@ -470,7 +473,7 @@ describe('BucketPanel', () => {
       props: {
         cards: [{ ...parent, bucket: 'proxy' }, { ...kid, bucket: 'proxy' }],
         headModifiers: { localAreaNetwork: true },
-        collapsed: { prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
+        collapsed: { dns: true, prepend: false, flexible: false, adblock: false, proxy: false, direct: false, final: true },
         dragEnabled: true,
         moveOptions: []
       },
@@ -482,6 +485,38 @@ describe('BucketPanel', () => {
     await proxied.findAll('button').find(button => ['▸', '▾'].includes(button.text())).trigger('click');
     expect(proxied.findAllComponents(RuleCardItem)
       .find(item => item.props('card').id === 'c1').props('detachable')).toBe(false);
+  });
+
+  /**
+   * 🌐 DNS 出口 段是只读说明：不承接卡片、不产出策略组，开关在 DNS 配置模块。
+   * 它存在的意义是让「策略组 = 卡片派生」在用户眼里成立——DNS 绑到哪个组、
+   * 会不会多出一个组，都能在这里看明白。
+   */
+  it('DNS 段是只读的：没有输入控件，不接受拖放', () => {
+    const wrapper = mountPanel();
+    const section = wrapper.findAll('section')
+      .find(item => item.find('[data-dns-segment-state]').exists());
+
+    expect(section).toBeTruthy();
+    expect(section.findAll('input')).toHaveLength(0);
+    expect(section.find('.draggable-stub').exists()).toBe(false);
+  });
+
+  it('DNS 段排在最前，且状态徽标随 dnsThroughProxy 变化', () => {
+    const on = mountPanel({ dnsThroughProxy: true });
+    expect(on.findAll('section')[0].find('[data-dns-segment-state]').text()).toBe('跟随代理');
+    expect(on.get('[data-dns-segment-body]').text()).toContain('🚀 节点选择');
+
+    const off = mountPanel({ dnsThroughProxy: false });
+    expect(off.findAll('section')[0].find('[data-dns-segment-state]').text()).toBe('直连');
+    expect(off.get('[data-dns-segment-body]').text()).not.toContain('🚀 节点选择');
+  });
+
+  it('DNS 段不显示卡片计数徽标——它不承接卡片', () => {
+    const wrapper = mountPanel();
+    const header = wrapper.findAll('section')[0].find('button');
+    expect(header.text()).toContain('🌐 DNS 出口');
+    expect(header.text()).not.toContain('🔒');
   });
 });
 

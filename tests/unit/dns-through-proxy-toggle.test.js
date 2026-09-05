@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import yaml from 'js-yaml';
 import { DNS_PROXY_GROUP } from '../../shared/safe-dns.js';
+import { createDefaultState } from '../../src/utils/rule-generator/catalog.js';
+import { serializeState } from '../../src/utils/rule-generator/serialize.js';
 import { resolveEffectiveDnsConfig } from '../../functions/modules/dns-template-handler.js';
 import { resolveDnsThroughProxy } from '../../functions/modules/subscription/main-handler.js';
 import { generateBuiltinClashConfig } from '../../functions/modules/subscription/builtin-clash-generator.js';
@@ -186,5 +188,87 @@ describe('DNS 走代理开关：与策略模板叠加', () => {
         expect(references).toBe(0);
         expect(consistent).toBe(true);
         expect(config.dns.nameserver).toEqual(['udp://8.8.8.8:53']);
+    });
+});
+
+/**
+ * 「策略组 = 卡片派生」不变量：可视化规则生成器的产出里，客户端看到的策略组
+ * 必须与生成器自报的一致。DNS 走代理时复用已有入口组而不插专用组，正是为此。
+ *
+ * 生产口径：规则模板 → templateSource.kind='custom' → ruleLevel='none'
+ * + cardDerivedGroups=true（见 processor-service.js 的 renderParams）。
+ */
+describe('策略组 = 卡片派生：生成器产出的组数与自报一致', () => {
+    // 覆盖默认启用的各地区，否则 pruneEmptyGroups 会因无匹配节点剪掉地区组，
+    // 那是另一条正当的减少路径，会掩盖本用例要测的「多出一个组」
+    const REGION_NODES = ['🇭🇰 HK', '🇹🇼 TW', '🇸🇬 SG', '🇯🇵 JP', '🇺🇸 US', '🇰🇷 KR', '🇩🇪 DE']
+        .map((name, index) => `ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.1.1.${index + 1}:8388#${name}-01`)
+        .join('\n');
+
+    const generated = () => serializeState(createDefaultState());
+    const declaredGroupNames = ini => [...ini.matchAll(/^custom_proxy_group=([^`]+)`/gm)].map(match => match[1]);
+
+    const renderGenerated = (ini, dnsThroughProxy) => renderClashFromIniTemplate(ini, {
+        nodeList: REGION_NODES,
+        ruleLevel: 'none',
+        dnsThroughProxy,
+        cardDerivedGroups: true
+    });
+
+    it.each([[true], [false]])('dnsThroughProxy=%s 时产出的组与 INI 声明的逐个对应', dnsThroughProxy => {
+        const { ini, groupCount } = generated();
+        const declared = declaredGroupNames(ini);
+        const emitted = (yaml.load(renderGenerated(ini, dnsThroughProxy))['proxy-groups'] || [])
+            .map(group => group.name);
+
+        expect(declared).toHaveLength(groupCount);
+        expect(emitted).toEqual(declared);
+        expect(emitted).not.toContain(DNS_PROXY_GROUP);
+    });
+
+    it('走代理时 DNS 绑到入口组 🚀 节点选择，该组由卡片派生且确实存在', () => {
+        const { ini } = generated();
+        const config = yaml.load(renderGenerated(ini, true));
+        const entryGroup = '🚀 节点选择';
+
+        expect(config.dns.nameserver.every(value => value.endsWith(`#${entryGroup}`))).toBe(true);
+        expect((config['proxy-groups'] || []).some(group => group.name === entryGroup)).toBe(true);
+        // 国内解析器要直连，不跟着绑
+        expect(config.dns['nameserver-policy']['geosite:cn'].every(value => !value.includes('#'))).toBe(true);
+    });
+
+    it('sing-box 侧同样复用入口组，不产出 DNS 出口出站', () => {
+        const { ini } = generated();
+        const config = JSON.parse(renderSingboxFromIniTemplate(ini, {
+            nodeList: REGION_NODES, ruleLevel: 'none', cardDerivedGroups: true
+        }));
+
+        expect((config.outbounds || []).some(o => o.tag === DNS_PROXY_GROUP)).toBe(false);
+        expect(config.dns.servers.find(s => s.tag === 'dns-foreign-1').detour).toBe('🚀 节点选择');
+        expect((config.route.rule_set || []).every(item => item.download_detour === '🚀 节点选择')).toBe(true);
+    });
+
+    it('非卡片派生的模板（内置 / 远程 INI）仍用专用组，不改上游行为', () => {
+        const config = yaml.load(renderClashFromIniTemplate(INI_TEMPLATE, {
+            nodeList: NODE, ruleLevel: 'std'
+        }));
+        expect((config['proxy-groups'] || []).some(group => group.name === DNS_PROXY_GROUP)).toBe(true);
+        expect(JSON.stringify(config.dns)).toContain(DNS_PROXY_GROUP);
+    });
+
+    it('卡片派生但入口组被删掉时退回专用组，绝不引用不存在的组', () => {
+        // 高级模式里手写、把 🚀 节点选择 删了的极端情况
+        const noEntry = [
+            '[custom]',
+            'custom_proxy_group=🐟 漏网之鱼`select`.*`[]DIRECT',
+            'ruleset=🐟 漏网之鱼,[]FINAL',
+            ''
+        ].join('\n');
+        const { exists, references, consistent } = clashConsistency(
+            renderClashFromIniTemplate(noEntry, { nodeList: NODE, ruleLevel: 'none', cardDerivedGroups: true })
+        );
+        expect(exists).toBe(true);
+        expect(references).toBeGreaterThan(0);
+        expect(consistent).toBe(true);
     });
 });

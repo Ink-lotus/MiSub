@@ -465,6 +465,11 @@ export function getBuiltinRules(level, format) {
  * @param {string} format 
  * @param {Array} ruleLines (翻译后的规则行)
  */
+/**
+ * @param {Object} [options]
+ * @param {string} [options.dnsProxyGroup] sing-box 的 download_detour 绑定目标。
+ *        空/缺省即不绑 —— 绑一个不存在的出站会让 sing-box 拒绝整份配置。
+ */
 export function getRemoteProviderDefinitions(format, ruleLines, options = {}) {
     const providers = {};
     const usedTags = new Set();
@@ -496,8 +501,8 @@ export function getRemoteProviderDefinitions(format, ruleLines, options = {}) {
                 format: String(source.singbox || '').toLowerCase().endsWith('.srs') ? 'binary' : 'source',
                 url: pinRemoteRuleUrl(source.singbox),
                 update_interval: '24h',
-                // 只在 DNS 出口组确实存在时才绑 download_detour，否则会引用一个不存在的出站
-                ...(options.emitDnsProxyGroup === true ? { download_detour: DNS_PROXY_GROUP } : {})
+                // 只在确实有可用的 DNS 出口组时才绑，否则会引用一个不存在的出站
+                ...(options.dnsProxyGroup ? { download_detour: options.dnsProxyGroup } : {})
             };
         }
     });

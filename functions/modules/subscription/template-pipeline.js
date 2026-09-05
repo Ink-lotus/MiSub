@@ -38,7 +38,7 @@ export function renderClashFromIniTemplate(templateText, options = {}) {
     });
 
     // 智能注入地区分组逻辑
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { cardDerivedGroups: options.cardDerivedGroups === true });
     
     return renderClashFromTemplateModel(model);
 }
@@ -56,7 +56,7 @@ export function renderSingboxFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { cardDerivedGroups: options.cardDerivedGroups === true });
     return renderSingboxFromTemplateModel(model, options);
 }
 
@@ -73,7 +73,7 @@ export function renderSurgeFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model, { dnsBindable: false });
+    model = applySmartModelOptimizations(model, { dnsBindable: false, cardDerivedGroups: options.cardDerivedGroups === true });
     return renderSurgeFromTemplateModel(model, options);
 }
 
@@ -90,7 +90,7 @@ export function renderLoonFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model, { dnsBindable: false });
+    model = applySmartModelOptimizations(model, { dnsBindable: false, cardDerivedGroups: options.cardDerivedGroups === true });
     return renderLoonFromTemplateModel(model, options);
 }
 
@@ -107,7 +107,7 @@ export function renderQuanxFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model, { dnsBindable: false });
+    model = applySmartModelOptimizations(model, { dnsBindable: false, cardDerivedGroups: options.cardDerivedGroups === true });
     return renderQuanxFromTemplateModel(model, options);
 }
 
@@ -124,6 +124,6 @@ export function renderEgernFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model, { dnsBindable: false });
+    model = applySmartModelOptimizations(model, { dnsBindable: false, cardDerivedGroups: options.cardDerivedGroups === true });
     return renderEgernFromTemplateModel(model);
 }

@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 import { clashFix } from '../../../utils/format-utils.js';
-import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { normalizeUnifiedTemplateModel, resolveModelDnsProxyGroup } from '../template-model.js';
 import { ruleModifierSuffix } from './rule-modifiers.js';
 import { DNS_PROXY_GROUP, resolveSafeDnsConfig } from '../safe-dns.js';
 
@@ -171,7 +171,7 @@ export function renderClashFromTemplateModel(model) {
         'external-controller': '127.0.0.1:9090',
         'dns': resolveSafeDnsConfig(normalizedModel.settings?.customDnsOverride, {
             mode: normalizedModel.settings?.dnsMode,
-            proxyGroup: normalizedModel.settings?.dnsThroughProxy === false ? '' : DNS_PROXY_GROUP
+            proxyGroup: resolveModelDnsProxyGroup(normalizedModel, DNS_PROXY_GROUP)
         }),
         'proxies': normalizedModel.proxies,
         'proxy-groups': normalizedModel.groups

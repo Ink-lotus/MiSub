@@ -1,5 +1,5 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
-import { AI_SERVICE_RULES } from './builtin-rules-provider.js';
+import { AI_SERVICE_RULES, DEFAULT_SELECT_GROUP, DEFAULT_RELAY_GROUP } from './builtin-rules-provider.js';
 import { DNS_PROXY_GROUP } from './safe-dns.js';
 
 /**
@@ -207,6 +207,39 @@ function ensureDnsProxyGroup(model) {
     });
 }
 
+/**
+ * 决定「DNS 走代理」时把外部解析器绑到哪个策略组。
+ *
+ * 两种形态，由 cardDerivedGroups 区分：
+ *
+ * **策略组由卡片派生**（可视化规则生成器产出的规则模板）：复用模型里已有的
+ * 入口组，不插专用的 `🌐 DNS 出口`。三条理由：
+ *   1. 生成器的策略组全部由卡片派生，凭空多一个组会让预览与实际产物不一致
+ *      （实测生成器自报 9 组、产物 10 组）
+ *   2. INI 模板格式没有 `hidden` 字段的位置，那个专用组在客户端里是**可见的**
+ *      （内置生成器那条路才带 hidden）。mihomo 的 hidden 本身也只是 api 状态位、
+ *      需要面板适配，sing-box 更是完全没有这个字段
+ *   3. 复用入口组后 DNS 跟着流量走：用户把出口切到 DIRECT 时 DNS 也直连，
+ *      不会出现「流量直连而 DNS 仍走代理」的错位
+ *
+ * **其余形态**（内置模板、用户手写的远程 INI）：照上游插专用组。那些路径没有
+ * 卡片、不涉及上述不变量，凭空改上游行为无益，且没有可靠的复用目标 ——
+ * 「取第一个组」可能撞上 `🛑 广告拦截`（成员首位是 REJECT），DNS 会被直接拒掉。
+ *
+ * 卡片派生但确实找不到入口组时（在高级模式手写、把 `🚀 节点选择` 删掉了）
+ * 同样退回专用组：宁可多一个可见的组，也不能让 DNS 引用不存在的组。
+ */
+const DNS_DETOUR_PREFERENCE = [DEFAULT_SELECT_GROUP, DEFAULT_RELAY_GROUP];
+
+function resolveDnsProxyGroup(model, cardDerivedGroups) {
+    if (cardDerivedGroups) {
+        const names = new Set((model.groups || []).map(group => group?.name).filter(Boolean));
+        const reused = DNS_DETOUR_PREFERENCE.find(name => names.has(name));
+        if (reused) return { target: reused, needsDedicatedGroup: false };
+    }
+    return { target: DNS_PROXY_GROUP, needsDedicatedGroup: true };
+}
+
 function isAiGroupName(name) {
     const value = String(name || '');
     return /人工智能|智能\s*ai|(?:^|[^a-z])(ai|claude|openai|gemini|grok|mistral|deepseek|perplexity|copilot)(?=$|[^a-z])/i.test(value);
@@ -302,8 +335,11 @@ function ensureAiPolicy(model) {
  * @param {Object} [options]
  * @param {boolean} [options.dnsBindable=true] - 目标格式的 DNS 配置位能否绑策略组。
  *        clash / sing-box 可以；surge / loon / quanx / egern 不行，传 false 以免注入死组。
+ * @param {boolean} [options.cardDerivedGroups=false] - 该模型的策略组是否由可视化
+ *        规则生成器的卡片派生。为 true 时 DNS 复用已有入口组而不插专用组，
+ *        见 resolveDnsProxyGroup。
  */
-export function applySmartModelOptimizations(model, { dnsBindable = true } = {}) {
+export function applySmartModelOptimizations(model, { dnsBindable = true, cardDerivedGroups = false } = {}) {
     const { ruleLevel } = model.meta || {};
     const normalizedLevel = (ruleLevel || '').toLowerCase();
     const isCustomOrNone = !normalizedLevel || normalizedLevel === 'none';
@@ -311,16 +347,23 @@ export function applySmartModelOptimizations(model, { dnsBindable = true } = {})
     // 1. 执行现有的正则过滤器解析 (始终执行)
     resolveGroupFilters(model);
 
-    // 2. DNS 出口策略组注入：
-    // 三个条件全满足才注入，否则它是个没人引用的死组：
+    // 2. DNS 绑定目标：三个条件全满足才绑，否则合成的 DNS 不带 #组名 后缀
     //   - dnsBindable：目标格式的 DNS 配置位能绑策略组（clash 的 #组名 / sing-box 的 detour）。
     //     surge / loon / quanx 没有这种写法，由 template-pipeline 传 false
-    //   - dnsThroughProxy：用户的「DNS 走代理」开关，关闭时合成的 DNS 也不带 #组名 后缀
-    //   - 未用自定义 DNS：用户自己写的 DNS 块未必引用这个组
+    //   - dnsThroughProxy：用户的「DNS 走代理」开关
+    //   - 未用自定义 DNS：用户自己写的 DNS 块未必引用任何组
+    //
+    // 决定结果写进 model.settings.dnsProxyGroup，渲染器只读不再自行判断，
+    // 保证「组是否存在」与「DNS 是否引用它」出自同一处。
     const dnsThroughProxy = model.settings?.dnsThroughProxy !== false;
     const hasCustomDns = Boolean(model.settings?.customDnsOverride && String(model.settings.customDnsOverride).trim());
     if (dnsBindable && dnsThroughProxy && !hasCustomDns) {
-        ensureDnsProxyGroup(model);
+        const { target, needsDedicatedGroup } = resolveDnsProxyGroup(model, cardDerivedGroups);
+        model.settings.dnsProxyGroup = target;
+        // 只有拿不到可复用入口组时才插专用组，见 resolveDnsProxyGroup 的注释
+        if (needsDedicatedGroup) ensureDnsProxyGroup(model);
+    } else {
+        model.settings.dnsProxyGroup = '';
     }
 
     // 3. AI 服务分组与分流规则注入：

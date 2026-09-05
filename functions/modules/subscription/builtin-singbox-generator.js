@@ -335,9 +335,12 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     const rawRules = getBuiltinRules(levelKey, 'singbox');
     
     // 提取远程 Rule Set 定义 (Sing-Box 格式)
-    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules, { emitDnsProxyGroup: dnsThroughProxy });
+    // 内置路径保留上游的专用 DNS 出口组：这条路没有卡片，不涉及生成器的
+    // 「策略组 = 卡片派生」不变量，改上游行为无益
+    const dnsProxyGroup = dnsThroughProxy ? DNS_PROXY_GROUP : '';
+    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules, { dnsProxyGroup });
     const ruleSets = [
-        getSingboxDnsRuleSet({ emitDnsProxyGroup: dnsThroughProxy }),
+        getSingboxDnsRuleSet({ dnsProxyGroup }),
         ...Object.values(ruleSetsMap).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
 
@@ -354,7 +357,7 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
 
     const dnsConfig = buildSingboxDnsConfig(options.customDnsOverride || '', {
         mode: options.dnsMode,
-        proxyGroup: dnsThroughProxy ? DNS_PROXY_GROUP : ''
+        proxyGroup: dnsProxyGroup
     });
 
     const config = {

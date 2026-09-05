@@ -264,7 +264,11 @@ export class ProcessorService {
                     isMeta: builtinOptions.isMeta,
                     customDnsOverride: builtinOptions.customDnsOverride || '',
                     dnsMode: builtinOptions.dnsMode || 'clean',
-                    dnsThroughProxy: builtinOptions.dnsThroughProxy !== false
+                    dnsThroughProxy: builtinOptions.dnsThroughProxy !== false,
+                    // 规则模板（kind='custom'）来自可视化规则生成器，策略组由卡片派生。
+                    // DNS 因此复用已有入口组而不插专用组，见 template-processor.js
+                    // 的 resolveDnsProxyGroup。内置模板与远程 INI 不适用。
+                    cardDerivedGroups: templateSource?.kind === 'custom'
                 };
 
                 switch (targetFormat) {

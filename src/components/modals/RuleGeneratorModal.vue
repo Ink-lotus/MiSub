@@ -9,6 +9,7 @@
 import { computed, ref, watch } from 'vue';
 import Modal from '../forms/Modal.vue';
 import { useI18n } from '@/i18n/index.js';
+import { useDataStore } from '@/stores/useDataStore.js';
 import {
   OTHER_REGION_ID,
   createDefaultState,
@@ -52,9 +53,18 @@ const isDrifted = ref(false);
  * 只有一行固定说明，默认收起省地方。
  */
 const collapsed = ref({
+  // dns 是只读说明段，默认收起 —— 折叠头上的状态徽标已经把关键信息说完了
+  dns: true,
   prepend: false, flexible: false,
   adblock: false, proxy: false, direct: false, final: true
 });
+
+/**
+ * 「DNS 走代理」的当前值，只读。真值在 settings.dnsConfig.throughProxy，
+ * 生成器不改它 —— DNS 只保留一个配置入口，见 BucketPanel 的 dns 段注释。
+ */
+const dataStore = useDataStore();
+const dnsThroughProxy = computed(() => dataStore.settings?.dnsConfig?.throughProxy !== false);
 
 /** 窄屏不启用拖拽，改用「移到… ▾」下拉，语义等价（§7.2）。 */
 const isNarrow = ref(false);
@@ -375,6 +385,7 @@ function apply() {
             :collapsed="collapsed"
             :drag-enabled="dragEnabled"
             :move-options="moveOptions"
+            :dns-through-proxy="dnsThroughProxy"
             class="max-h-[26rem]"
             @toggle-collapse="key => collapsed[key] = !collapsed[key]"
             @toggle-modifier="toggleModifier"

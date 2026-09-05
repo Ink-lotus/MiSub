@@ -1,5 +1,5 @@
 import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
-import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { normalizeUnifiedTemplateModel, resolveModelDnsProxyGroup } from '../template-model.js';
 import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from '../safe-dns.js';
 import { getSingboxDnsRuleSet, pinRemoteRuleUrl } from '../builtin-rules-provider.js';
 
@@ -309,8 +309,8 @@ function detectRuleSetFormat(url) {
     return raw.endsWith('.srs') ? 'binary' : 'source';
 }
 
-// dnsThroughProxy 为 false 时不绑 download_detour：DNS 出口组此时不存在
-function buildRuleSets(rules, dnsThroughProxy = true) {
+// dnsProxyGroup 为空串时不绑 download_detour：此时没有可用的 DNS 出口组
+function buildRuleSets(rules, dnsProxyGroup = '') {
     const remoteRuleSets = rules
         .filter(rule => String(rule.type || '').toLowerCase() === 'rule-set' && rule.source === 'remote')
         .map(rule => ({
@@ -319,7 +319,7 @@ function buildRuleSets(rules, dnsThroughProxy = true) {
             format: detectRuleSetFormat(rule.value),
             url: pinRemoteRuleUrl(rule.value),
             update_interval: '24h',
-            ...(dnsThroughProxy ? { download_detour: DNS_PROXY_GROUP } : {})
+            ...(dnsProxyGroup ? { download_detour: dnsProxyGroup } : {})
         }));
 
     const implicitRuleSets = [];
@@ -340,7 +340,7 @@ function buildRuleSets(rules, dnsThroughProxy = true) {
                         ? pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${value}.srs`)
                         : pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${value}.srs`),
                     update_interval: '24h',
-                    ...(dnsThroughProxy ? { download_detour: DNS_PROXY_GROUP } : {})
+                    ...(dnsProxyGroup ? { download_detour: dnsProxyGroup } : {})
                 });
             }
         }
@@ -351,7 +351,8 @@ function buildRuleSets(rules, dnsThroughProxy = true) {
 
 export function renderSingboxFromTemplateModel(model, options = {}) {
     const normalizedModel = normalizeUnifiedTemplateModel(model);
-    const dnsThroughProxy = normalizedModel.settings?.dnsThroughProxy !== false;
+    // 绑定目标由 applySmartModelOptimizations 决定，渲染器只读；空串 = 不绑
+    const dnsProxyGroup = resolveModelDnsProxyGroup(normalizedModel, DNS_PROXY_GROUP);
     const nodeList = typeof options.nodeList === 'string' ? options.nodeList : '';
     const proxyUrls = nodeList
         .split('\n')
@@ -363,14 +364,14 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
     const proxyOutbounds = proxies.map(buildOutbound).filter(Boolean);
     const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(g => Array.isArray(g.members) && g.members.length > 0));
     const ruleSetObjects = [
-        getSingboxDnsRuleSet({ emitDnsProxyGroup: dnsThroughProxy }),
-        ...buildRuleSets(normalizedModel.rules, dnsThroughProxy).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
+        getSingboxDnsRuleSet({ dnsProxyGroup }),
+        ...buildRuleSets(normalizedModel.rules, dnsProxyGroup).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
     const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
     const defaultOutbound = normalizedModel.groups.find(group => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT';
     const dnsConfig = buildSingboxDnsConfig(normalizedModel.settings?.customDnsOverride, {
         mode: normalizedModel.settings?.dnsMode,
-        proxyGroup: dnsThroughProxy ? DNS_PROXY_GROUP : ''
+        proxyGroup: dnsProxyGroup
     });
 
     const config = {

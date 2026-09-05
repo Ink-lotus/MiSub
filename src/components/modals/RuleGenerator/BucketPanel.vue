@@ -26,7 +26,9 @@ const props = defineProps({
   conflictingIds: { type: Object, default: () => new Set() },
   collapsed: { type: Object, required: true },
   dragEnabled: { type: Boolean, default: true },
-  moveOptions: { type: Array, default: () => [] }
+  moveOptions: { type: Array, default: () => [] },
+  /** 「DNS 走代理」的当前值，只读展示。真值在 settings.dnsConfig.throughProxy */
+  dnsThroughProxy: { type: Boolean, default: true }
 });
 
 const emit = defineEmits([
@@ -74,6 +76,9 @@ const dragOptions = computed(() => ({
 
 /** 六段。顺序即规则输出顺序。 */
 const SEGMENTS = [
+  // 🌐 DNS 出口：只读说明段，不接受拖放、不产出策略组。
+  // 排在最前是因为 DNS 解析发生在任何规则匹配之前。
+  { bucket: 'dns', labelKey: 'settings.ruleGenSegDns', droppable: false, locked: true, readonly: 'dns' },
   { bucket: 'prepend', labelKey: 'settings.ruleGenSegPrepend', hintKey: 'settings.ruleGenSegPrependHint',
     droppable: true, showSources: true, modifiers: true },
   { bucket: 'flexible', labelKey: 'settings.ruleGenSegFlexible', hintKey: 'settings.ruleGenSegFlexibleHint',
@@ -101,7 +106,10 @@ function topLevelIn(bucket) {
 
 const counts = computed(() => {
   const map = {};
-  SEGMENTS.forEach(segment => { map[segment.bucket] = topLevelIn(segment.bucket).length; });
+  SEGMENTS.forEach(segment => {
+    // 只读段不承接卡片，topLevelIn 对它恒为空，不必白算
+    map[segment.bucket] = segment.readonly ? 0 : topLevelIn(segment.bucket).length;
+  });
   return map;
 });
 
@@ -149,7 +157,16 @@ function isEmptyParent(card) {
         <span class="w-3 text-sm leading-none text-gray-400">{{ collapsed[segment.bucket] ? '▸' : '▾' }}</span>
         <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ t(segment.labelKey) }}</span>
 
-        <span v-if="segment.locked" class="text-[10px] text-gray-400">🔒</span>
+        <!-- DNS 段用状态徽标代替 🔒：折叠时也能看出当前是走代理还是直连 -->
+        <span
+          v-if="segment.readonly === 'dns'"
+          data-dns-segment-state
+          class="rounded-full px-1.5 text-[10px] font-bold"
+          :class="dnsThroughProxy
+            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+            : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400'"
+        >{{ dnsThroughProxy ? t('settings.ruleGenSegDnsOn') : t('settings.ruleGenSegDnsOff') }}</span>
+        <span v-else-if="segment.locked" class="text-[10px] text-gray-400">🔒</span>
         <span
           v-else
           class="rounded-full bg-gray-100 px-1.5 text-[10px] font-bold text-gray-500 dark:bg-white/10 dark:text-gray-400"
@@ -159,32 +176,50 @@ function isEmptyParent(card) {
       <div v-if="!collapsed[segment.bucket]" class="border-t border-gray-100 p-2 dark:border-white/5">
         <p v-if="segment.hintKey" class="mb-2 text-[10px] leading-snug text-gray-400">{{ t(segment.hintKey) }}</p>
 
-        <!-- 前置修正段自带局域网直连开关 -->
-        <label
-          v-if="segment.modifiers"
-          class="mb-2 flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-300"
-        >
-          <input
-            type="checkbox"
-            :checked="headModifiers.localAreaNetwork"
-            @change="emit('toggle-modifier', 'localAreaNetwork')"
-            class="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600"
-          />
-          {{ t('settings.ruleGenModLan') }}
-        </label>
+        <!--
+          DNS 段：纯说明，不放开关。DNS 只有一个配置入口（设置 → 转换设置 →
+          DNS 配置），在这里再放一个开关就是第二个入口，两份持久化状态会漂移。
+        -->
+        <div v-if="segment.readonly === 'dns'" class="space-y-1.5 text-[11px] leading-relaxed">
+          <p data-dns-segment-body class="text-gray-600 dark:text-gray-300">
+            {{ dnsThroughProxy
+              ? t('settings.ruleGenSegDnsBodyOn', { group: GROUP_NAMES.nodeSelect })
+              : t('settings.ruleGenSegDnsBodyOff') }}
+          </p>
+          <p class="text-gray-400">{{ t('settings.ruleGenSegDnsWhere') }}</p>
+        </div>
 
-        <!-- 🐟 漏网之鱼：无可配置项 -->
-        <p v-if="segment.bucket === 'final'" class="text-[11px] text-gray-500 dark:text-gray-400">
-          {{ GROUP_NAMES.final }}
-        </p>
+        <!--
+          其余段用 template v-else 整块包住：DNS 段不能落进下面任何一个分支，
+          而中间那个 label 自带 v-if，会把 v-if/v-else 链断开。
+        -->
+        <template v-else>
+          <!-- 前置修正段自带局域网直连开关 -->
+          <label
+            v-if="segment.modifiers"
+            class="mb-2 flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-300"
+          >
+            <input
+              type="checkbox"
+              :checked="headModifiers.localAreaNetwork"
+              @change="emit('toggle-modifier', 'localAreaNetwork')"
+              class="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600"
+            />
+            {{ t('settings.ruleGenModLan') }}
+          </label>
 
-        <draggable
-          v-else
-          v-bind="dragOptions"
-          :model-value="topLevelIn(segment.bucket)"
-          @update:model-value="value => emit('drop', { bucket: segment.bucket, cards: value })"
-          class="min-h-[3.5rem] space-y-1.5"
-        >
+          <!-- 🐟 漏网之鱼：无可配置项 -->
+          <p v-if="segment.bucket === 'final'" class="text-[11px] text-gray-500 dark:text-gray-400">
+            {{ GROUP_NAMES.final }}
+          </p>
+
+          <draggable
+            v-else
+            v-bind="dragOptions"
+            :model-value="topLevelIn(segment.bucket)"
+            @update:model-value="value => emit('drop', { bucket: segment.bucket, cards: value })"
+            class="min-h-[3.5rem] space-y-1.5"
+          >
           <!--
             一个 item = 一张顶层卡片 +（大卡片时）它自己的小卡片列表。
 
@@ -254,7 +289,8 @@ function isEmptyParent(card) {
               {{ t('settings.ruleGenDropHere') }}
             </p>
           </template>
-        </draggable>
+          </draggable>
+        </template>
       </div>
     </section>
   </div>
