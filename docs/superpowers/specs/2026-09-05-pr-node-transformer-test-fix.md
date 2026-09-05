@@ -133,9 +133,10 @@ No implementation change.
 - 分支基于 `upstream/main`，**不要合回我们的 main**（我们已有该修复，在 `08a1700` 里）
 - 我们的 fork 里这处改动带中文注释，与上游既有注释风格一致（上游代码里有中文注释），
   可保留；但**提交信息与 PR 描述用英文**
-- 我们 fork 还有另外两个待提 PR（见 `2026-09-04-pr-kv-d1-migration-fix.md` 与
-  `2026-09-05-pr-dns-override-surge-loon-quanx.md`）。三个 PR **彼此独立、可任意顺序提**，
-  不要合并成一个
+- 我们 fork 还有另外两个 PR：[`2026-09-04-pr-kv-d1-migration-fix.md`](./2026-09-04-pr-kv-d1-migration-fix.md)
+  （**已提交，上游 #474，等待审阅**）与 [`2026-09-05-pr-dns-override-surge-loon-quanx.md`](./2026-09-05-pr-dns-override-surge-loon-quanx.md)
+  （代码尚未编写）。三者**彼此独立、可任意顺序提**，不要合并成一个。
+  #474 的正文里已经提过这条红灯并建议单独更新——本 PR 正是那个「单独更新」
 
 ---
 

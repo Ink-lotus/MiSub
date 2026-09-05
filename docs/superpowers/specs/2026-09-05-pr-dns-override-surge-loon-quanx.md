@@ -183,10 +183,10 @@ git push -u origin feat/dns-override-surge-loon-quanx
 
 ### 6.4 三个 PR 彼此独立
 
-我们 fork 还有另外两个待提 PR（`2026-09-04-pr-kv-d1-migration-fix.md` 与
-`2026-09-05-pr-node-transformer-test-fix.md`）。三者**彼此独立、可任意顺序提**，
-不要合并成一个。建议顺序：PR 一（测试修复，最易合）→ 本 PR → KV→D1 迁移修复
-（那个动数据迁移逻辑，审阅最重）。
+我们 fork 还有另外两个 PR：[`2026-09-04-pr-kv-d1-migration-fix.md`](./2026-09-04-pr-kv-d1-migration-fix.md)
+（**已提交，上游 #474，等待审阅**）与 [`2026-09-05-pr-node-transformer-test-fix.md`](./2026-09-05-pr-node-transformer-test-fix.md)
+（代码已存在，照搬 4 行）。三者**彼此独立、可任意顺序提**，不要合并成一个。
+建议先提测试修复那个（最易合），合完之后本 PR 的验证叙述会干净得多——见 6.1。
 
 ---
 
