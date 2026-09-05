@@ -10,6 +10,9 @@
  *
  * 广告类卡片只加一个橙色 AD 角标，不改底色边框：红色留给去重撞车独占，
  * 两种状态才不会混淆。
+ *
+ * `deletable`（整理模式）时标题行末尾多一个 ✕，它的语义是**移到回收站**而不是
+ * 立即删除 —— 真正的删除发生在「应用到模板」那一刻，见 catalog.js 的 TRASH_BUCKET。
  */
 import { computed } from 'vue';
 import { useI18n } from '@/i18n/index.js';
@@ -36,10 +39,12 @@ const props = defineProps({
   /** 命中去重冲突时标红 */
   conflicting: { type: Boolean, default: false },
   /** 大卡片内小卡片归零 —— 不产出任何内容 */
-  isEmpty: { type: Boolean, default: false }
+  isEmpty: { type: Boolean, default: false },
+  /** 整理模式：右端露出 ✕，点它把卡片移到回收站（不是立即删） */
+  deletable: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['move', 'remove-source', 'toggle', 'toggle-standalone']);
+const emit = defineEmits(['move', 'remove-source', 'toggle', 'toggle-standalone', 'delete']);
 
 const isParent = computed(() => props.card.parentId === null);
 const isAd = computed(() => /广告/.test(props.card.name));
@@ -128,6 +133,21 @@ function sourceLabel(source) {
         v-else-if="effectiveCount > 1"
         class="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-500 dark:bg-white/10 dark:text-gray-400"
       >{{ effectiveCount }}</span>
+
+      <!--
+        整理模式的 ✕：**常驻可见**，不用 hover 才显形 —— 触屏上摸不到 hover，
+        而整理模式本身已经是一次显式的模式切换，不需要再藏一层。
+        它排在这一行最后，因此不会挤掉展开钮那个固定位置，也不影响
+        「第一个 button 是展开钮」这个既有假设。
+      -->
+      <button
+        v-if="deletable"
+        type="button"
+        :title="t('settings.ruleGenDeleteCard')"
+        :aria-label="`${t('settings.ruleGenDeleteCard')}：${card.name}`"
+        @click.stop="emit('delete')"
+        class="no-drag -mr-1 shrink-0 rounded px-1.5 py-0.5 text-xs leading-none text-gray-300 transition hover:bg-red-50 hover:text-red-500 dark:text-gray-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+      >✕</button>
     </div>
 
     <p v-if="isEmpty" class="mt-1 text-[10px] text-amber-600 dark:text-amber-400">

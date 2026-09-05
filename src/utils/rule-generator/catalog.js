@@ -15,6 +15,10 @@
  * `standalone: true` 的小卡片即便与父卡片同桶也自己算一个输出单元，
  * 用于在灵活桶里把某一张小卡片单独拎出来成组，见 isTopLevelIn()。
  *
+ * 两个特殊取值：`bucket: TRASH_BUCKET` = 待删（保存时由 pruneTrashed 剪掉），
+ * `parentId: LOOSE_PARENT_ID` = 还没归入任何集合的游离小卡片。各自的理由见
+ * 下面那两个常量的注释。
+ *
  * **全部卡片的初始桶一律是 `off`（留在左栏待选栏）**，生成器不替用户决定分流。
  * 每张卡片各自的推荐落点仍保留在 RECOMMENDED_BUCKETS 里，供后续「一键设定
  * 规则分组」使用，见 applyRecommendedBuckets()。
@@ -74,6 +78,31 @@ export const DEFAULT_TOLERANCE = 50;
 
 /** 桶标识。`off` = 留在左栏待选栏，不产出任何输出。 */
 export const BUCKETS = Object.freeze(['off', 'prepend', 'flexible', 'adblock', 'proxy', 'direct']);
+
+/**
+ * 回收站桶。**刻意不进 `BUCKETS`** —— 它不是一种分流归属，而是「这张卡片待删」
+ * 的暂存位，只在整理模式下的右栏顶部露出一段。
+ *
+ * 「删除卡片」因此不需要独立动作：改桶到这里即入回收站，拖出来即撤销，
+ * 大卡片的连带行为由既有的「改桶带走同桶小卡片」自动承担。
+ * 真正的删除发生在保存时的 pruneTrashed()，在那之前一切可反悔。
+ *
+ * 它也不在 RULE_BUCKET_ORDER 里，因此即便忘了剪枝也产出不了任何规则。
+ */
+export const TRASH_BUCKET = 'trash';
+
+/**
+ * 游离小卡片的哨兵 parentId。
+ *
+ * `parentId === null` 在本模型里就等于「这是大卡片」，因此「一张还没归入任何
+ * 集合的小卡片」没法用 null 表示。挂这个永不匹配任何真实卡片的 id，它就落进
+ * CardPalette 既有的「散落卡片」节（那一节本来收的是父卡片被拖走的孤立小卡片），
+ * 用户把它拖进任意大卡片时 handleChildDrop 会改成真 parentId。
+ *
+ * isTopLevelIn() 找不到父卡片时判定为顶层，因此游离小卡片进桶后自己算一个
+ * 输出单元 —— 与被单独拖出集合的小卡片同一套语义，无需额外分支。
+ */
+export const LOOSE_PARENT_ID = '__loose__';
 
 /**
  * 规则段输出顺序。`ruleset=` 的行序即最终匹配优先级。
@@ -451,6 +480,36 @@ export function cloneBuiltinCards() {
         ...card,
         sources: card.sources.map(source => ({ ...source }))
     }));
+}
+
+/**
+ * 剪掉回收站里的卡片，返回新数组，**不改入参** —— 界面上回收站还得看得见。
+ *
+ * 这是「删除」真正生效的那一步。序列化、校验与去重一律走剪枝后的结果，
+ * 因此 validate.js 与 dedupe.js 里那几处 `bucket === 'off'` 的判断不必知道
+ * 回收站的存在，回收站里的卡片也不会跑出幻影冲突。
+ */
+export function pruneTrashed(cards) {
+    return (Array.isArray(cards) ? cards : [])
+        .filter(card => card && card.bucket !== TRASH_BUCKET);
+}
+
+/**
+ * 把当前状态里缺失的内置卡片按目录顺序补回待选栏，返回新数组。
+ *
+ * 回收站只在保存前可撤；保存之后想要回被删的内置卡片就只能靠它。补回的卡片
+ * 带着目录里的完整来源，因此拖进桶即可用。已存在的卡片一律不动 ——
+ * 包括它当前的桶与用户改过的字段。
+ */
+export function restoreMissingBuiltins(cards) {
+    const list = Array.isArray(cards) ? cards.filter(Boolean) : [];
+    const present = new Set(list.map(card => card.id));
+
+    const missing = cloneBuiltinCards()
+        .filter(card => !present.has(card.id))
+        .map(card => ({ ...card, bucket: 'off' }));
+
+    return [...list, ...missing];
 }
 
 const DEFAULT_ENABLED_REGIONS = Object.freeze(['hk', 'jp', 'sg', 'us', OTHER_REGION_ID]);

@@ -1,12 +1,19 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { mount } from '@vue/test-utils';
 import RuleGeneratorModal from '../../src/components/modals/RuleGeneratorModal.vue';
 import RuleCardItem from '../../src/components/modals/RuleGenerator/RuleCardItem.vue';
 import BucketPanel from '../../src/components/modals/RuleGenerator/BucketPanel.vue';
 import CardPalette from '../../src/components/modals/RuleGenerator/CardPalette.vue';
+import GeneratorTopBar from '../../src/components/modals/RuleGenerator/GeneratorTopBar.vue';
 import { createI18n } from '../../src/i18n/index.js';
-import { createDefaultState, applyRecommendedBuckets, GROUP_NAMES } from '../../src/utils/rule-generator/catalog.js';
+import {
+  LOOSE_PARENT_ID,
+  TRASH_BUCKET,
+  createDefaultState,
+  applyRecommendedBuckets,
+  GROUP_NAMES
+} from '../../src/utils/rule-generator/catalog.js';
 import { serializeState } from '../../src/utils/rule-generator/serialize.js';
 
 /** Modal 的 focus-trap 在 happy-dom 下噪音大，替换成直通壳。 */
@@ -353,6 +360,292 @@ describe('RuleGeneratorModal', () => {
   });
 });
 
+describe('整理模式与回收站', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 待选栏那个「🗑 整理卡片」开关。 */
+  function toggleEdit(wrapper) {
+    return wrapper.findComponent(CardPalette).get('[data-test="toggle-edit"]');
+  }
+
+  function cardItem(wrapper, id) {
+    return wrapper.findAllComponents(RuleCardItem).find(item => item.props('card').id === id);
+  }
+
+  it('默认不在整理模式，卡片上没有 ✕；点开关后才有', async () => {
+    const wrapper = mountModal();
+
+    expect(cardItem(wrapper, 'cat-ai').props('deletable')).toBe(false);
+
+    await toggleEdit(wrapper).trigger('click');
+    expect(cardItem(wrapper, 'cat-ai').props('deletable')).toBe(true);
+
+    // 再点一次退出
+    await toggleEdit(wrapper).trigger('click');
+    expect(cardItem(wrapper, 'cat-ai').props('deletable')).toBe(false);
+  });
+
+  it('点 ✕ 把卡片移到回收站，大卡片连带它的小卡片', async () => {
+    const wrapper = mountModal();
+    await toggleEdit(wrapper).trigger('click');
+
+    const children = wrapper.vm.state.cards
+      .filter(card => card.parentId === 'cat-media')
+      .map(card => card.id);
+    expect(children.length).toBeGreaterThan(1);
+
+    await cardItem(wrapper, 'cat-media').get('button:last-child').trigger('click');
+
+    expect(wrapper.vm.state.cards.find(card => card.id === 'cat-media').bucket).toBe(TRASH_BUCKET);
+    children.forEach(id => {
+      expect(wrapper.vm.state.cards.find(card => card.id === id).bucket).toBe(TRASH_BUCKET);
+    });
+  });
+
+  it('拖出回收站即撤销，大卡片的小卡片一起回来', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-media', bucket: 'proxy' });
+    wrapper.vm.trashCard('cat-media');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.state.cards.find(card => card.id === 'youtube').bucket).toBe(TRASH_BUCKET);
+
+    wrapper.vm.moveCard({ cardId: 'cat-media', bucket: 'proxy' });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards.find(card => card.id === 'cat-media').bucket).toBe('proxy');
+    expect(wrapper.vm.state.cards.find(card => card.id === 'youtube').bucket).toBe('proxy');
+  });
+
+  it('回收站里的卡片不产出规则，也不参与冲突与校验', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-media', bucket: 'proxy' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.serialized.ini).toContain('YouTube.list');
+
+    wrapper.vm.trashCard('cat-media');
+    await wrapper.vm.$nextTick();
+
+    // 预览 INI 立刻就是「删除后」的样子，注释头里也不再记它
+    expect(wrapper.vm.serialized.ini).not.toContain('YouTube.list');
+    expect(wrapper.vm.serialized.ini).not.toContain('🎬 流媒体');
+    // 待删卡片仍在 state 里（界面上还看得见），但下游一律看剪枝后的状态
+    expect(wrapper.vm.state.cards.some(card => card.id === 'cat-media')).toBe(true);
+    expect(wrapper.vm.committedState.cards.some(card => card.id === 'cat-media')).toBe(false);
+  });
+
+  it('待删的内置卡片撞车不算冲突 —— 它已经不产出规则了', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.moveCard({ cardId: 'cat-social', bucket: 'proxy' });
+    wrapper.vm.submitRuleset({
+      name: '我的电报',
+      rows: [{ kind: 'remote', value: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/Telegram.list' }]
+    });
+    await wrapper.vm.$nextTick();
+    wrapper.vm.moveCard({ cardId: wrapper.vm.state.cards[0].id, bucket: 'proxy' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.vm.conflicts).toHaveLength(1);
+
+    // 把内置的那张丢进回收站，冲突随之消失
+    wrapper.vm.trashCard('telegram');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.conflicts).toHaveLength(0);
+  });
+
+  /**
+   * happy-dom 不实现 window.confirm，得自己挂一个 —— 正是因此 apply() 里对
+   * confirm 存在性做了防御：没有它的环境下不该整个卡住。
+   */
+  function stubConfirm(answer) {
+    const spy = vi.fn().mockReturnValue(answer);
+    window.confirm = spy;
+    return spy;
+  }
+
+  it('应用时回收站非空要二次确认，取消则什么都不做', async () => {
+    const wrapper = mountModal();
+    wrapper.vm.trashCard('cat-media');
+    await wrapper.vm.$nextTick();
+
+    const confirmSpy = stubConfirm(false);
+    await wrapper.get('[data-test="confirm"]').trigger('click');
+
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(confirmSpy.mock.calls[0][0]).toContain('12');   // 大卡片 + 11 张小卡片
+    expect(wrapper.emitted('apply')).toBeUndefined();
+    expect(wrapper.emitted('update:show')).toBeUndefined();
+
+    confirmSpy.mockReturnValue(true);
+    await wrapper.get('[data-test="confirm"]').trigger('click');
+
+    expect(wrapper.emitted('apply')).toHaveLength(1);
+    expect(wrapper.emitted('apply')[0][0]).not.toContain('YouTube.list');
+    delete window.confirm;
+  });
+
+  it('回收站为空时不弹确认', async () => {
+    const wrapper = mountModal();
+    const confirmSpy = stubConfirm(true);
+
+    await wrapper.get('[data-test="confirm"]').trigger('click');
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(wrapper.emitted('apply')).toHaveLength(1);
+    delete window.confirm;
+  });
+
+  it('保存过的删除靠「恢复内置卡片」补回，按钮只在有缺失时出现', async () => {
+    const full = mountModal();
+    expect(full.findComponent(CardPalette).find('[data-test="restore-builtins"]').exists()).toBe(false);
+
+    // 模拟「上次保存时删掉了 🎬 流媒体 整组」之后重新打开
+    const pruned = createDefaultState();
+    pruned.cards = pruned.cards
+      .filter(card => card.id !== 'cat-media' && card.parentId !== 'cat-media');
+    const wrapper = mountModal({ content: serializeState(pruned).ini });
+
+    expect(wrapper.vm.missingBuiltinCount).toBe(12);
+    const restore = wrapper.findComponent(CardPalette).get('[data-test="restore-builtins"]');
+    expect(restore.text()).toContain('12');
+
+    await restore.trigger('click');
+
+    const media = wrapper.vm.state.cards.find(card => card.id === 'cat-media');
+    expect(media.bucket).toBe('off');
+    expect(wrapper.vm.state.cards.find(card => card.id === 'youtube').sources).toHaveLength(1);
+    expect(wrapper.vm.missingBuiltinCount).toBe(0);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(CardPalette).find('[data-test="restore-builtins"]').exists()).toBe(false);
+  });
+
+  it('丢进回收站再拖回来不会打乱钉底卡片的顺序', async () => {
+    const wrapper = mountModal();
+    const geoip = wrapper.vm.state.cards.find(card => card.id === 'geoip-cn');
+    expect(geoip.order).toBe(999);
+
+    // 回收站是个待删的口袋，段内顺序没有意义，因此不重写 order
+    wrapper.vm.handleDrop({ bucket: TRASH_BUCKET, cards: [geoip] });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards.find(card => card.id === 'geoip-cn').order).toBe(999);
+  });
+});
+
+describe('新建小卡片', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('整组行合成一张小卡片，多行即多条来源，落在待选栏的散落卡片里', async () => {
+    const wrapper = mountModal();
+    const before = wrapper.vm.state.cards.length;
+
+    wrapper.vm.submitRuleset({
+      mode: 'child',
+      name: '🧩 我的合集',
+      rows: [
+        { kind: 'remote', value: 'https://example.com/a.list' },
+        { kind: 'remote', value: 'https://example.com/b.list' },
+        { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'example.com' }
+      ]
+    });
+    await wrapper.vm.$nextTick();
+
+    // 一张卡，不是一张大卡片套三张小卡片
+    expect(wrapper.vm.state.cards).toHaveLength(before + 1);
+    const card = wrapper.vm.state.cards.at(-1);
+    expect(card.name).toBe('🧩 我的合集');
+    expect(card.parentId).toBe(LOOSE_PARENT_ID);   // 游离小卡片，不是大卡片
+    expect(card.origin).toBe('user');
+    expect(card.bucket).toBe('off');
+    expect(card.sources).toHaveLength(3);
+    expect(card.sources[2]).toMatchObject({ kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'example.com' });
+  });
+
+  it('不填名字时从第一条规则派生卡片名', async () => {
+    const wrapper = mountModal();
+
+    wrapper.vm.submitRuleset({
+      mode: 'child', name: '  ',
+      rows: [{ kind: 'remote', value: 'https://example.com/path/MyList.list' }]
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards.at(-1).name).toBe('MyList.list');
+  });
+
+  it('一条规则都没有时不建卡 —— 没来源的小卡片什么都不产出', async () => {
+    const wrapper = mountModal();
+    const before = wrapper.vm.state.cards.length;
+
+    wrapper.vm.submitRuleset({ mode: 'child', name: '只有名字', rows: [{ kind: 'remote', value: ' ' }] });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards).toHaveLength(before);
+  });
+
+  it('拖进任意大卡片即归入该集合，并跟到它所在的桶', async () => {
+    const wrapper = mountModal();
+    wrapper.vm.moveCard({ cardId: 'cat-ai', bucket: 'flexible' });
+    wrapper.vm.submitRuleset({
+      mode: 'child', name: '🛰️ 我的 AI',
+      rows: [{ kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'mine.ai' }]
+    });
+    await wrapper.vm.$nextTick();
+
+    const mine = wrapper.vm.state.cards.at(-1);
+    wrapper.vm.handleChildDrop({ parentId: 'cat-ai', cards: [mine] });
+    await wrapper.vm.$nextTick();
+
+    const moved = wrapper.vm.state.cards.find(card => card.id === mine.id);
+    expect(moved.parentId).toBe('cat-ai');
+    expect(moved.bucket).toBe('flexible');
+
+    // 并进 🤖 AI 服务 那一组，不自己成组
+    const ini = wrapper.vm.serialized.ini;
+    expect(ini).toContain('ruleset=🤖 AI 服务,[]DOMAIN-SUFFIX,mine.ai');
+    expect(ini).not.toContain('custom_proxy_group=🛰️ 我的 AI');
+  });
+
+  it('游离小卡片直接拖进桶时自己算一个输出单元', async () => {
+    const wrapper = mountModal();
+    wrapper.vm.submitRuleset({
+      mode: 'child', name: '🧩 独立清单',
+      rows: [{ kind: 'remote', value: 'https://example.com/solo.list' }]
+    });
+    await wrapper.vm.$nextTick();
+
+    wrapper.vm.moveCard({ cardId: wrapper.vm.state.cards.at(-1).id, bucket: 'flexible' });
+    await wrapper.vm.$nextTick();
+
+    const ini = wrapper.vm.serialized.ini;
+    expect(ini).toContain('custom_proxy_group=🧩 独立清单');
+    expect(ini).toContain('ruleset=🧩 独立清单,https://example.com/solo.list');
+  });
+
+  it('建集合模式（默认）行为不变，仍是一张大卡片 + 每行一张小卡片', async () => {
+    const wrapper = mountModal();
+    const before = wrapper.vm.state.cards.length;
+
+    wrapper.vm.submitRuleset({
+      mode: 'parent', name: '百度',
+      rows: [
+        { kind: 'remote', value: 'https://example.com/baidu.list' },
+        { kind: 'inline', ruleType: 'DOMAIN-SUFFIX', value: 'baidu.com' }
+      ]
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.state.cards).toHaveLength(before + 3);
+    expect(wrapper.vm.state.cards[0].parentId).toBeNull();
+  });
+});
+
 describe('真实 vuedraggable 下的渲染', () => {
   /**
    * 其余用例把 vuedraggable 换成静态壳（它要真实 DOM 度量），代价是
@@ -379,6 +672,31 @@ describe('真实 vuedraggable 下的渲染', () => {
     const ids = wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id);
     expect(ids).toContain('cat-ai');
     expect(ids).not.toContain('ai-openai');
+  });
+
+  /** 回收站段与其它段共用同一套插槽，但只有整理模式才渲染 —— 单独兜一次。 */
+  it('整理模式下的回收站段在真 draggable 下也挂得住', async () => {
+    const configured = createDefaultState();
+    configured.cards = applyRecommendedBuckets(configured.cards);
+
+    const wrapper = mount(RuleGeneratorModal, {
+      props: { show: true, content: serializeState(configured).ini },
+      global: {
+        plugins: [createPinia(), createI18n({ initialLocale: 'zh-CN' })],
+        stubs: { Modal: modalStub }
+      }
+    });
+
+    await wrapper.findComponent(CardPalette).get('[data-test="toggle-edit"]').trigger('click');
+    expect(wrapper.findComponent(BucketPanel).text()).toContain('🗑 回收站');
+
+    // 往回收站里放一张大卡片，它的小卡片列表同样是真 draggable
+    wrapper.vm.trashCard('cat-ai');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findAllComponents(RuleCardItem).map(item => item.props('card').id))
+      .toContain('cat-ai');
+    expect(wrapper.vm.serialized.ini).not.toContain('OpenAi.list');
   });
 });
 
@@ -518,12 +836,64 @@ describe('BucketPanel', () => {
     expect(header.text()).toContain('🌐 DNS 出口');
     expect(header.text()).not.toContain('🔒');
   });
+
+  /** 段头文案，用来断言段的可见顺序。 */
+  function headings(wrapper) {
+    return wrapper.findAll('section > button').map(button => button.text());
+  }
+
+  it('回收站段默认不渲染；整理模式下插在最前，不挤进优先级链', () => {
+    expect(headings(mountPanel())[0]).toContain('🌐 DNS 出口');
+
+    const editing = mountPanel({ editMode: true });
+    const order = headings(editing);
+    expect(order[0]).toContain('🗑 回收站');
+    // 其余段的相对顺序 = 匹配优先级承诺，一动不动
+    expect(order.slice(1)).toEqual([
+      expect.stringContaining('🌐 DNS 出口'),
+      expect.stringContaining('🔧 前置修正'),
+      expect.stringContaining('🧩 灵活桶'),
+      expect.stringContaining('🛑 广告拦截'),
+      expect.stringContaining('🌍 国际代理'),
+      expect.stringContaining('🎯 全球直连'),
+      expect.stringContaining('🐟 漏网之鱼')
+    ]);
+  });
+
+  it('回收站非空时照旧渲染 —— 退出整理模式不该把待删卡片藏起来', () => {
+    const wrapper = mountPanel({
+      editMode: false,
+      trashedCount: 1,
+      cards: [{ ...parent, bucket: TRASH_BUCKET }, { ...kid, bucket: TRASH_BUCKET }]
+    });
+
+    const header = headings(wrapper)[0];
+    expect(header).toContain('🗑 回收站');
+    expect(header).toContain('1');            // 大卡片代表了它的小卡片
+  });
+
+  it('整理模式下卡片露出 ✕；已在回收站里的卡片不再给 ✕', async () => {
+    const wrapper = mountPanel({ editMode: true });
+    const card = wrapper.findAllComponents(RuleCardItem).find(item => item.props('card').id === 'p1');
+    expect(card.props('deletable')).toBe(true);
+
+    await card.get('button:last-child').trigger('click');
+    expect(wrapper.emitted('delete')).toEqual([['p1']]);
+
+    const trashed = mountPanel({
+      editMode: true,
+      trashedCount: 1,
+      cards: [{ ...parent, bucket: TRASH_BUCKET }, { ...kid, bucket: TRASH_BUCKET }]
+    });
+    expect(trashed.findAllComponents(RuleCardItem)
+      .find(item => item.props('card').id === 'p1').props('deletable')).toBe(false);
+  });
 });
 
 describe('CardPalette', () => {
-  function mountPalette(dragEnabled = true) {
+  function mountPalette(dragEnabled = true, overrides = {}) {
     return mount(CardPalette, {
-      props: { cards: createDefaultState().cards, dragEnabled, moveOptions: [] },
+      props: { cards: createDefaultState().cards, dragEnabled, moveOptions: [], ...overrides },
       global: {
         plugins: [createI18n({ initialLocale: 'zh-CN' })],
         stubs: { draggable: draggableStub }
@@ -580,6 +950,58 @@ describe('CardPalette', () => {
     // 窄屏走「移到…」下拉，拖放整个不启用，这块空白也就没有意义
     expect(mountPalette(false).findAllComponents(draggableStub)
       .some(list => list.classes().includes('flex-1'))).toBe(false);
+  });
+
+  /** 顶栏「提交为卡片」建出来的游离小卡片，靠哨兵 parentId 落进散落卡片节。 */
+  function withLooseCard() {
+    return [...createDefaultState().cards, {
+      id: 'user-1', name: '🧩 我的清单', parentId: LOOSE_PARENT_ID, origin: 'user',
+      bucket: 'off', order: -1,
+      sources: [{ id: 'src-1', kind: 'remote', value: 'https://example.com/mine.list' }]
+    }];
+  }
+
+  it('散落卡片节排在最前 —— 新建的小卡片不该压在十节收起的集合下面', () => {
+    const wrapper = mountPalette(true, { cards: withLooseCard() });
+    const text = wrapper.text();
+
+    expect(text.indexOf('散落卡片')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('散落卡片')).toBeLessThan(text.indexOf('✅ 直连例外'));
+    // 那一节恒定展开，因此新卡片直接就看得见
+    expect(text).toContain('🧩 我的清单');
+  });
+
+  it('整理模式下卡片露出 ✕，点它冒出 delete', async () => {
+    const wrapper = mountPalette(true, { editMode: true });
+    const card = wrapper.findAllComponents(RuleCardItem).find(item => item.props('card').id === 'cat-ai');
+
+    expect(card.props('deletable')).toBe(true);
+    await card.get('button:last-child').trigger('click');
+
+    expect(wrapper.emitted('delete')).toEqual([['cat-ai']]);
+  });
+
+  it('整理开关冒出 toggle-edit，文案随状态切换', async () => {
+    const wrapper = mountPalette();
+    const toggle = wrapper.get('[data-test="toggle-edit"]');
+
+    expect(toggle.text()).toContain('整理卡片');
+    await toggle.trigger('click');
+    expect(wrapper.emitted('toggle-edit')).toHaveLength(1);
+
+    expect(mountPalette(true, { editMode: true })
+      .get('[data-test="toggle-edit"]').text()).toContain('完成整理');
+  });
+
+  it('「恢复内置卡片」只在有缺失时渲染，带计数并冒出 restore-builtins', async () => {
+    expect(mountPalette().find('[data-test="restore-builtins"]').exists()).toBe(false);
+
+    const wrapper = mountPalette(true, { missingBuiltinCount: 7 });
+    const restore = wrapper.get('[data-test="restore-builtins"]');
+    expect(restore.text()).toContain('7');
+
+    await restore.trigger('click');
+    expect(wrapper.emitted('restore-builtins')).toHaveLength(1);
   });
 });
 
@@ -689,5 +1111,91 @@ describe('RuleCardItem', () => {
 
     // 小卡片没有展开钮
     expect(mountCard(child).text()).not.toContain('▸');
+  });
+
+  it('deletable 时右端露出 ✕，点它冒出 delete；默认不渲染', async () => {
+    expect(mountCard(child).text()).not.toContain('✕');
+
+    const wrapper = mountCard(child, { deletable: true });
+    expect(wrapper.text()).toContain('✕');
+
+    await wrapper.get('button').trigger('click');
+    expect(wrapper.emitted('delete')).toHaveLength(1);
+  });
+
+  it('✕ 排在展开钮之后 —— 不打乱「第一个 button 是展开钮」这个既有假设', async () => {
+    const wrapper = mountCard(
+      { ...child, id: 'p1', parentId: null, sources: [] },
+      { expandable: true, deletable: true, children: [child] }
+    );
+
+    await wrapper.findAll('button')[0].trigger('click');
+    expect(wrapper.emitted('toggle')).toHaveLength(1);
+    expect(wrapper.emitted('delete')).toBeUndefined();
+  });
+
+  it('✕ 带 no-drag，因此点它不会起拖拽', () => {
+    expect(mountCard(child, { deletable: true }).get('button').classes()).toContain('no-drag');
+  });
+});
+
+describe('GeneratorTopBar 自定义规则集', () => {
+  function mountTopBar() {
+    return mount(GeneratorTopBar, {
+      props: { base: createDefaultState().base },
+      global: { plugins: [createI18n({ initialLocale: 'zh-CN' })] }
+    });
+  }
+
+  async function fillFirstRow(wrapper, value) {
+    await wrapper.findAll('input[type="text"], input:not([type])')
+      .find(input => input.classes().includes('font-mono')).setValue(value);
+  }
+
+  it('默认建集合模式，提交载荷带 mode: parent', async () => {
+    const wrapper = mountTopBar();
+    expect(wrapper.get('[data-test="mode-parent"]').attributes('aria-pressed')).toBe('true');
+
+    await fillFirstRow(wrapper, 'https://example.com/a.list');
+    await wrapper.get('[data-test="submit-ruleset"]').trigger('click');
+
+    expect(wrapper.emitted('submit-ruleset')[0][0].mode).toBe('parent');
+  });
+
+  it('切到建卡片模式后载荷带 mode: child，占位文案也跟着换', async () => {
+    const wrapper = mountTopBar();
+    await wrapper.get('[data-test="mode-child"]').trigger('click');
+
+    expect(wrapper.get('input[placeholder="卡片名称"]').exists()).toBe(true);
+
+    await fillFirstRow(wrapper, 'https://example.com/a.list');
+    await wrapper.get('[data-test="submit-ruleset"]').trigger('click');
+
+    expect(wrapper.emitted('submit-ruleset')[0][0].mode).toBe('child');
+  });
+
+  it('建卡片模式下光有名字不能提交 —— 没来源的小卡片什么都不产出', async () => {
+    const wrapper = mountTopBar();
+    await wrapper.get('input[placeholder="规则集名称"]').setValue('只有名字');
+
+    // 建集合模式下这是合法的：空分组卡片可以攒集合
+    const submit = wrapper.get('[data-test="submit-ruleset"]');
+    expect(submit.attributes('disabled')).toBeUndefined();
+    expect(submit.text()).toContain('创建空分组卡片');
+
+    await wrapper.get('[data-test="mode-child"]').trigger('click');
+
+    expect(wrapper.get('[data-test="submit-ruleset"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.text()).toContain('小卡片至少要填一条规则');
+  });
+
+  it('不提供「归入集合」下拉 —— 换集合只走拖拽这一个入口', async () => {
+    const wrapper = mountTopBar();
+    await wrapper.get('[data-test="mode-child"]').trigger('click');
+
+    // 区块内只有「远程 / 内联」与内联类型这两类下拉，没有第三个
+    const selects = wrapper.findAll('select');
+    expect(selects).toHaveLength(1);
+    expect(selects[0].text()).toContain('远程');
   });
 });

@@ -2,9 +2,16 @@
 /**
  * 顶栏：基础策略组勾选 + 地区面板 + 自定义规则集构建器。
  *
- * 只放不可拖动的东西。自定义规则集在这里拼好后整组提交为
- * 一张大卡片 + 每行一张小卡片，落到左栏候选区顶部，不直接进右侧桶。
- * 一行规则都不填也能提交 —— 那是一张空的分组卡片，用来自己攒集合。
+ * 只放不可拖动的东西。自定义规则集有两种提交粒度：
+ *
+ *   新建集合  整组行合成一张大卡片 + 每行一张小卡片，落到左栏候选区顶部。
+ *             一行规则都不填也能提交 —— 那是一张空的分组卡片，用来自己攒集合。
+ *   新建卡片  整组行合成一张小卡片、多行即多条来源，落到左栏的「散落卡片」节，
+ *             由用户自己拖进想去的大卡片。这个模式要求至少一条规则 ——
+ *             没有来源的小卡片什么都不产出。
+ *
+ * 刻意**不给「归入集合」下拉**：把小卡片拖进大卡片本来就是换集合的唯一入口，
+ * 再加一个入口等于同一件事有两种做法。
  */
 import { computed, ref } from 'vue';
 import { useI18n } from '@/i18n/index.js';
@@ -46,10 +53,18 @@ function makeRow(kind = 'remote') {
 
 const draftName = ref('');
 const draftRows = ref([makeRow('remote')]);
+/** 'parent' = 新建集合（大卡片 + 每行一张小卡片）；'child' = 新建一张小卡片 */
+const draftMode = ref('parent');
 
 const hasRows = computed(() => draftRows.value.some(row => String(row.value || '').trim()));
-/** 有规则就能提交；一条规则都没有时要求起个名字，否则空卡片没法称呼。 */
-const canSubmit = computed(() => hasRows.value || Boolean(draftName.value.trim()));
+const isChildMode = computed(() => draftMode.value === 'child');
+/**
+ * 新建集合：有规则就能提交；一条规则都没有时要求起个名字，否则空卡片没法称呼。
+ * 新建卡片：必须至少一条规则 —— 没有来源的小卡片什么都不产出，建了也没用。
+ */
+const canSubmit = computed(() => (isChildMode.value
+  ? hasRows.value
+  : hasRows.value || Boolean(draftName.value.trim())));
 
 function addRow(kind) {
   draftRows.value.push(makeRow(kind));
@@ -62,7 +77,11 @@ function removeRow(key) {
 
 function submit() {
   if (!canSubmit.value) return;
-  emit('submit-ruleset', { name: draftName.value, rows: draftRows.value.map(row => ({ ...row })) });
+  emit('submit-ruleset', {
+    mode: draftMode.value,
+    name: draftName.value,
+    rows: draftRows.value.map(row => ({ ...row }))
+  });
   draftName.value = '';
   draftRows.value = [makeRow('remote')];
 }
@@ -142,16 +161,42 @@ function submit() {
       </label>
     </div>
 
-    <!-- 🧱 自定义规则集：整组行合成一张大卡片，提交到左栏候选区顶部 -->
+    <!-- 🧱 自定义规则集：整组行合成一张大卡片，或合成一张小卡片，落到左栏候选区 -->
     <div class="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/50 p-2.5 dark:border-indigo-500/40 dark:bg-indigo-900/15">
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-[11px] font-bold text-gray-600 dark:text-gray-300">{{ t('settings.ruleGenCustomSet') }}</span>
+
+        <!--
+          提交粒度。左边是原有行为（建集合），右边是新增的「只补一张小卡片」——
+          用户往往只想往既有集合里加一条规则，而不是凭空多出一个集合。
+        -->
+        <div class="flex overflow-hidden rounded border border-gray-200 dark:border-gray-700">
+          <button
+            v-for="option in [
+              { value: 'parent', labelKey: 'settings.ruleGenModeParent', hintKey: 'settings.ruleGenModeParentHint' },
+              { value: 'child', labelKey: 'settings.ruleGenModeChild', hintKey: 'settings.ruleGenModeChildHint' }
+            ]"
+            :key="option.value"
+            type="button"
+            :data-test="`mode-${option.value}`"
+            :title="t(option.hintKey)"
+            :aria-pressed="draftMode === option.value"
+            @click="draftMode = option.value"
+            class="px-2 py-1 text-[11px] font-semibold transition"
+            :class="draftMode === option.value
+              ? 'bg-indigo-600 text-white'
+              : 'bg-white text-gray-500 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/5'"
+          >{{ t(option.labelKey) }}</button>
+        </div>
+
         <input
           v-model="draftName"
-          :placeholder="t('settings.ruleGenCustomSetName')"
+          :placeholder="isChildMode ? t('settings.ruleGenCustomCardName') : t('settings.ruleGenCustomSetName')"
           class="w-40 rounded border border-gray-200 bg-white px-2 py-1 text-[11px] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
         />
-        <span class="text-[10px] text-gray-400">{{ t('settings.ruleGenCustomSetHint') }}</span>
+        <span class="text-[10px] text-gray-400">{{
+          isChildMode ? t('settings.ruleGenCustomCardHint') : t('settings.ruleGenCustomSetHint')
+        }}</span>
       </div>
 
       <div v-for="row in draftRows" :key="row.key" class="flex flex-wrap items-center gap-2">
@@ -197,13 +242,18 @@ function submit() {
           @click="addRow('inline')"
           class="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/5"
         >{{ t('settings.ruleGenAddInline') }}</button>
-        <span v-if="!hasRows" class="text-[10px] text-gray-400">{{ t('settings.ruleGenEmptySetHint') }}</span>
+        <span v-if="!hasRows" class="text-[10px] text-gray-400">{{
+          isChildMode ? t('settings.ruleGenCardNeedsRow') : t('settings.ruleGenEmptySetHint')
+        }}</span>
         <button
           type="button"
+          data-test="submit-ruleset"
           @click="submit"
           :disabled="!canSubmit"
           class="ml-auto rounded bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-40"
-        >{{ hasRows ? t('settings.ruleGenSubmitSet') : t('settings.ruleGenSubmitEmptySet') }}</button>
+        >{{ isChildMode
+          ? t('settings.ruleGenSubmitCard')
+          : (hasRows ? t('settings.ruleGenSubmitSet') : t('settings.ruleGenSubmitEmptySet')) }}</button>
       </div>
     </div>
   </div>

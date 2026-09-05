@@ -8,6 +8,9 @@
  *
  * 初始状态下全部卡片都在这里（目录 78 张），因此每节默认**收起**，
  * 只显示大卡片与它的小卡片数；搜索时自动展开命中的节。
+ *
+ * 顶部两个按钮：「🗑 整理卡片」切整理模式（卡片露出 ✕、右栏多一段回收站），
+ * 「↩️ 恢复内置卡片」把上次保存时删掉的内置卡片补回来 —— 回收站只在保存前可撤。
  */
 import { computed, ref } from 'vue';
 import draggable from 'vuedraggable';
@@ -20,10 +23,14 @@ const { t } = useI18n();
 const props = defineProps({
   cards: { type: Array, required: true },
   dragEnabled: { type: Boolean, default: true },
-  moveOptions: { type: Array, default: () => [] }
+  moveOptions: { type: Array, default: () => [] },
+  /** 整理模式：卡片上露出 ✕，点它把卡片移到右栏的回收站 */
+  editMode: { type: Boolean, default: false },
+  /** 当前状态里缺失的内置卡片数，为 0 时不渲染「恢复内置卡片」 */
+  missingBuiltinCount: { type: Number, default: 0 }
 });
 
-const emit = defineEmits(['move', 'drop', 'child-drop']);
+const emit = defineEmits(['move', 'drop', 'child-drop', 'toggle-edit', 'restore-builtins', 'delete']);
 
 const query = ref('');
 const expanded = ref(new Set());
@@ -79,7 +86,10 @@ function matches(card, keyword) {
 
 /**
  * 待选区的分组：每张待选大卡片一节，节内是它同样待选的小卡片。
- * 父卡片已被拖走的孤立小卡片单独归入「散落卡片」节。
+ * 父卡片已被拖走的孤立小卡片、以及顶栏刚建的游离小卡片，一并归入「散落卡片」节。
+ *
+ * 「散落卡片」**排在最前**：它是唯一恒定展开的一节，也是顶栏「提交为卡片」的
+ * 落点。压在十节收起的内置集合下面的话，新建一张小卡片看着像什么都没发生。
  *
  * 节内小卡片按 `order` 排 —— 拖拽会重写 order，不按它排的话拖完看不出变化。
  */
@@ -98,7 +108,7 @@ const sections = computed(() => {
 
   const orphans = off.filter(card => card.parentId !== null && !parentIds.has(card.parentId));
   if (orphans.length) {
-    groups.push({ key: '__orphans__', parent: null, children: orphans.sort(byOrder) });
+    groups.unshift({ key: '__orphans__', parent: null, children: orphans.sort(byOrder) });
   }
 
   // 搜索命中大卡片名则整节保留，否则只留命中的小卡片
@@ -121,13 +131,41 @@ function childrenInBucket(parentId) {
 
 <template>
   <div class="flex min-h-0 flex-col rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-900/50">
-    <div class="shrink-0 border-b border-gray-100 p-2 dark:border-white/5">
+    <div class="shrink-0 space-y-1.5 border-b border-gray-100 p-2 dark:border-white/5">
       <input
         v-model="query"
         type="search"
         :placeholder="`🔍 ${t('settings.ruleGenSearch')}`"
         class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
       />
+
+      <!--
+        整理模式的入口。它影响的是整个窗口（两栏的卡片都露出 ✕、右栏多一段
+        回收站），因此文案说的是「整理卡片」而不是「编辑」。
+      -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          data-test="toggle-edit"
+          :title="t('settings.ruleGenEditCardsHint')"
+          :aria-pressed="editMode"
+          @click="emit('toggle-edit')"
+          class="rounded border px-2 py-1 text-[11px] font-semibold transition"
+          :class="editMode
+            ? 'border-red-300 bg-red-50 text-red-600 dark:border-red-500/50 dark:bg-red-900/25 dark:text-red-300'
+            : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/5'"
+        >{{ editMode ? t('settings.ruleGenEditCardsDone') : t('settings.ruleGenEditCards') }}</button>
+
+        <!-- 回收站只在保存前可撤；保存之后要回被删的内置卡片就只能靠这个 -->
+        <button
+          v-if="missingBuiltinCount > 0"
+          type="button"
+          data-test="restore-builtins"
+          :title="t('settings.ruleGenRestoreBuiltinsHint')"
+          @click="emit('restore-builtins')"
+          class="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/5"
+        >{{ t('settings.ruleGenRestoreBuiltins') }} ({{ missingBuiltinCount }})</button>
+      </div>
     </div>
 
     <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
@@ -158,8 +196,10 @@ function childrenInBucket(parentId) {
               :expanded="isExpanded(section.key)"
               :show-move-menu="!dragEnabled"
               :move-options="moveOptions"
+              :deletable="editMode"
               @toggle="toggleSection(section.key)"
               @move="value => emit('move', { cardId: element.id, bucket: value })"
+              @delete="emit('delete', element.id)"
             />
           </template>
         </draggable>
@@ -189,7 +229,9 @@ function childrenInBucket(parentId) {
               :effective-count="countFor(element)"
               :show-move-menu="!dragEnabled"
               :move-options="moveOptions"
+              :deletable="editMode"
               @move="value => emit('move', { cardId: element.id, bucket: value })"
+              @delete="emit('delete', element.id)"
             />
           </template>
           <template #footer>

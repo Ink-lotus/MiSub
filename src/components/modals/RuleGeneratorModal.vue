@@ -11,10 +11,15 @@ import Modal from '../forms/Modal.vue';
 import { useI18n } from '@/i18n/index.js';
 import { useDataStore } from '@/stores/useDataStore.js';
 import {
+  BUILTIN_CARDS,
   OTHER_REGION_ID,
+  LOOSE_PARENT_ID,
+  TRASH_BUCKET,
   createDefaultState,
   effectiveSources,
-  isTopLevelIn
+  isTopLevelIn,
+  pruneTrashed,
+  restoreMissingBuiltins
 } from '@/utils/rule-generator/catalog.js';
 import { serializeState } from '@/utils/rule-generator/serialize.js';
 import { parseIniToState } from '@/utils/rule-generator/parse.js';
@@ -46,6 +51,14 @@ const isPartial = ref(false);
 const isDrifted = ref(false);
 
 /**
+ * 整理模式。开启后每张卡片右端露出 ✕，右栏顶部多一段「🗑 回收站」。
+ *
+ * ✕ 的语义是**移到回收站**而不是立即删，因此不需要二次确认 —— 在点「应用到
+ * 模板」之前一切都能拖回来。真正的删除只发生在 committedState 的剪枝那一步。
+ */
+const editMode = ref(false);
+
+/**
  * 每段的折叠状态。
  *
  * 五个可拖放段默认全展开 —— 收起时段内的 draggable 整个不渲染，拖不进去；
@@ -56,7 +69,9 @@ const collapsed = ref({
   // dns 是只读说明段，默认收起 —— 折叠头上的状态徽标已经把关键信息说完了
   dns: true,
   prepend: false, flexible: false,
-  adblock: false, proxy: false, direct: false, final: true
+  adblock: false, proxy: false, direct: false, final: true,
+  // 回收站只在整理模式或非空时渲染，露出来时理应是展开的
+  [TRASH_BUCKET]: false
 });
 
 /**
@@ -90,6 +105,8 @@ watch(() => props.show, opened => {
   parseWarnings.value = result.warnings;
   isPartial.value = result.partial;
   isDrifted.value = result.drifted;
+  // 每次打开都从浏览模式起步；回收站也跟着状态一起重置
+  editMode.value = false;
 }, { immediate: true });
 
 // —— 派生数据 ——
@@ -98,14 +115,38 @@ const enabledRegionNames = computed(() => state.value.base.regions
   .filter(region => region.enabled && region.id !== OTHER_REGION_ID)
   .map(region => region.name));
 
-/** 「移到…」下拉的选项，窄屏降级用。 */
+/**
+ * 剪掉回收站之后的状态 —— 序列化、校验、去重一律以它为准。
+ *
+ * 这是「回收站」这套设计的关键接缝：validate.js 有四处 `bucket === 'off'` 的
+ * 跳过判断、dedupe.js 的冲突 active 判定也是 `!== 'off'`，它们都不知道回收站
+ * 的存在。让下游只看剪枝后的状态，那五处一行都不用改，待删卡片也不会跑出
+ * 幻影冲突或校验报错，右下角的 INI 预览同时就是「删除后」的样子。
+ */
+const committedState = computed(() => ({ ...state.value, cards: pruneTrashed(state.value.cards) }));
+
+/** 回收站里的卡片，只用于计数与「应用」前的确认。 */
+const trashedCards = computed(() =>
+  state.value.cards.filter(card => card.bucket === TRASH_BUCKET));
+
+/** 当前状态里缺失的内置卡片数，决定待选栏那个「恢复内置卡片」按钮是否露出。 */
+const missingBuiltinCount = computed(() => {
+  const present = new Set(state.value.cards.map(card => card.id));
+  return BUILTIN_CARDS.filter(card => !present.has(card.id)).length;
+});
+
+/**
+ * 「移到…」下拉的选项，窄屏降级用。整理模式下多一项回收站 ——
+ * 窄屏不启用拖拽，这个下拉是那里唯一的移动入口。
+ */
 const moveOptions = computed(() => [
   { value: 'off', label: t('settings.ruleGenPalette') },
   { value: 'prepend', label: t('settings.ruleGenSegPrepend') },
   { value: 'flexible', label: t('settings.ruleGenSegFlexible') },
   { value: 'adblock', label: t('settings.ruleGenSegAdBlock') },
   { value: 'proxy', label: t('settings.ruleGenSegProxy') },
-  { value: 'direct', label: t('settings.ruleGenSegDirect') }
+  { value: 'direct', label: t('settings.ruleGenSegDirect') },
+  ...(editMode.value ? [{ value: TRASH_BUCKET, label: t('settings.ruleGenSegTrash') }] : [])
 ]);
 
 /**
@@ -114,7 +155,7 @@ const moveOptions = computed(() => [
  */
 const orderedActiveCards = computed(() => {
   const order = ['prepend', 'flexible', 'adblock', 'proxy', 'direct'];
-  const all = state.value.cards;
+  const all = committedState.value.cards;
 
   return order.flatMap(bucket => all
     .filter(card => isTopLevelIn(all, card, bucket) && effectiveSources(all, card).length > 0)
@@ -132,8 +173,8 @@ const conflicts = computed(() =>
 const conflictingIds = computed(() =>
   new Set(conflicts.value.flatMap(conflict => conflict.entries.map(entry => entry.cardId))));
 
-const validation = computed(() => validateState(state.value));
-const serialized = computed(() => serializeState(state.value));
+const validation = computed(() => validateState(committedState.value));
+const serialized = computed(() => serializeState(committedState.value));
 const canApply = computed(() => validation.value.canGenerate);
 
 // —— 事件处理 ——
@@ -158,8 +199,9 @@ function moveCard({ cardId, bucket }) {
 
   const previous = card.bucket;
   card.bucket = bucket;
-  // 回到待选栏就恢复默认归属：待选栏按父子分节展示，不体现独立成组
-  if (bucket === 'off') delete card.standalone;
+  // 回到待选栏或进回收站就恢复默认归属：待选栏按父子分节展示、回收站是个待删
+  // 的口袋，两者都不体现独立成组
+  if (bucket === 'off' || bucket === TRASH_BUCKET) delete card.standalone;
 
   if (card.parentId === null) {
     state.value.cards.forEach(child => {
@@ -171,23 +213,42 @@ function moveCard({ cardId, bucket }) {
 }
 
 /**
+ * 「删除」= 移到回收站。级联、撤销、预览一致性全部由改桶机制承担：
+ * moveCard 本来就会带走同桶的小卡片，拖出回收站也就自动还原。
+ */
+function trashCard(cardId) {
+  moveCard({ cardId, bucket: TRASH_BUCKET });
+}
+
+/** 把被删掉的内置卡片补回待选栏 —— 保存之后回收站已经撤不回来了。 */
+function restoreBuiltins() {
+  state.value.cards = restoreMissingBuiltins(state.value.cards);
+}
+
+/**
  * 拖放落地。vuedraggable 给的是该段的新顶层卡片数组，据此重写 bucket 与 order，
  * 让拖拽顺序即输出顺序。大卡片连带小卡片。
  *
  * 小卡片被拖进**段的顶层列表**时标 `standalone` —— 用户把它摆在集合旁边，
  * 意思就是"它自己算一个"。灵活桶下这决定了它是否单独成一个策略组。
+ *
+ * 回收站是例外：它是个待删的口袋，段内顺序没有意义，因此**不重写 order** ——
+ * 否则把 `🇨🇳 国内 IP`（order 999，靠它钉在所有域名规则之后）丢进回收站再拖
+ * 回来，它就跑到域名规则前面去了，而这种遮蔽在界面上看不出来。
  */
 function handleDrop({ bucket, cards }) {
+  const toTrash = bucket === TRASH_BUCKET;
+
   (cards || []).forEach((dropped, index) => {
     const card = state.value.cards.find(item => item.id === dropped.id);
     if (!card) return;
 
     const previous = card.bucket;
     card.bucket = bucket;
-    card.order = index;
+    if (!toTrash) card.order = index;
 
     if (card.parentId !== null) {
-      if (bucket === 'off') delete card.standalone;
+      if (bucket === 'off' || toTrash) delete card.standalone;
       else card.standalone = true;
       return;
     }
@@ -247,15 +308,36 @@ function setStandalone({ cardId, standalone }) {
 }
 
 /**
- * 顶栏提交自定义规则集：整组行合成**一张大卡片 + 每行一张小卡片**，
- * 落到左栏候选区顶部（bucket: 'off'），不直接进右侧桶。
+ * 顶栏提交自定义规则集，两种粒度：
  *
- * 一行规则都没填时只建大卡片 —— 那是一张空的分组卡片，用来把别的小卡片
- * 拖进来自己攒集合（handleChildDrop）。
+ *   mode: 'parent'（默认）整组行合成**一张大卡片 + 每行一张小卡片**，
+ *     落到左栏候选区顶部。一行规则都没填时只建大卡片 —— 那是一张空的分组卡片，
+ *     用来把别的小卡片拖进来自己攒集合（handleChildDrop）。
+ *
+ *   mode: 'child'  整组行合成**一张小卡片**，多行即多条来源（与内置卡片同构，
+ *     例如 `🛍️ 国内大厂` 一张卡挂四条清单）。它落进待选栏的「散落卡片」节，
+ *     由用户自己拖进想去的大卡片 —— 不另给「归入集合」下拉，拖拽本来就是
+ *     小卡片换集合的唯一入口。小卡片没有来源就什么都不产出，因此这个模式
+ *     要求至少一条有效规则。
  */
-function submitRuleset({ name, rows }) {
+function submitRuleset({ mode, name, rows }) {
   const valid = (rows || []).filter(row => String(row.value || '').trim());
   const label = String(name || '').trim();
+
+  if (mode === 'child') {
+    if (!valid.length) return;
+    state.value.cards.push({
+      id: nextId('user'),
+      name: label || shortLabel(valid[0]),
+      parentId: LOOSE_PARENT_ID,
+      origin: 'user',
+      bucket: 'off',
+      order: -1,
+      sources: valid.map(row => ({ id: nextId('src'), ...sourceOf(row) }))
+    });
+    return;
+  }
+
   if (!valid.length && !label) return;
 
   const parentId = nextId('user');
@@ -276,15 +358,17 @@ function submitRuleset({ name, rows }) {
     origin: 'user',
     bucket: 'off',
     order: index,
-    sources: [{
-      id: nextId('src'),
-      ...(row.kind === 'inline'
-        ? { kind: 'inline', ruleType: row.ruleType, value: row.value.trim() }
-        : { kind: 'remote', value: row.value.trim() })
-    }]
+    sources: [{ id: nextId('src'), ...sourceOf(row) }]
   }));
 
   state.value.cards.unshift(parent, ...children);
+}
+
+/** 草稿行 → CardSource 的字段形态。 */
+function sourceOf(row) {
+  return row.kind === 'inline'
+    ? { kind: 'inline', ruleType: row.ruleType, value: String(row.value).trim() }
+    : { kind: 'remote', value: String(row.value).trim() };
 }
 
 /** 小卡片的显示名：远程取文件名，内联取「类型 值」。 */
@@ -313,8 +397,17 @@ function acceptRecovered() {
   isPartial.value = false;
 }
 
+/**
+ * 应用到模板。这是回收站里的卡片**真正**消失的那一刻 —— 在此之前关窗即全部
+ * 还原，所以整个流程里唯一的二次确认放在这里，而不是每次点 ✕ 时。
+ */
 function apply() {
   if (!canApply.value) return;
+
+  const pending = trashedCards.value.length;
+  if (pending > 0 && typeof window !== 'undefined' && typeof window.confirm === 'function'
+    && !window.confirm(t('settings.ruleGenTrashConfirm', { count: pending }))) return;
+
   emit('apply', serialized.value.ini);
   emit('update:show', false);
 }
@@ -373,10 +466,15 @@ function apply() {
             :cards="state.cards"
             :drag-enabled="dragEnabled"
             :move-options="moveOptions"
+            :edit-mode="editMode"
+            :missing-builtin-count="missingBuiltinCount"
             class="max-h-[26rem]"
             @move="moveCard"
             @drop="handleDrop"
             @child-drop="handleChildDrop"
+            @toggle-edit="editMode = !editMode"
+            @restore-builtins="restoreBuiltins"
+            @delete="trashCard"
           />
           <BucketPanel
             :cards="state.cards"
@@ -386,6 +484,8 @@ function apply() {
             :drag-enabled="dragEnabled"
             :move-options="moveOptions"
             :dns-through-proxy="dnsThroughProxy"
+            :edit-mode="editMode"
+            :trashed-count="trashedCards.length"
             class="max-h-[26rem]"
             @toggle-collapse="key => collapsed[key] = !collapsed[key]"
             @toggle-modifier="toggleModifier"
@@ -394,6 +494,7 @@ function apply() {
             @child-drop="handleChildDrop"
             @set-standalone="setStandalone"
             @remove-source="removeSource"
+            @delete="trashCard"
           />
         </div>
 

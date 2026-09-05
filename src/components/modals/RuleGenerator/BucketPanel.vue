@@ -6,12 +6,16 @@
  * 段内只渲染**顶层**卡片：大卡片，或被单独拖出父卡片的小卡片。
  * 大卡片下面挂一条自己的小卡片列表 —— 它是独立的可拖放列表，
  * 因此小卡片在段内可以重排、也可以直接拖进另一张大卡片（改父）。
+ *
+ * 整理模式（或回收站非空）时顶部多插一段「🗑 回收站」，它不属于那条优先级链，
+ * 因此单独放在 TRASH_SEGMENT 而不写进 RULE_SEGMENTS。
  */
 import { computed, ref } from 'vue';
 import draggable from 'vuedraggable';
 import { useI18n } from '@/i18n/index.js';
 import {
   GROUP_NAMES,
+  TRASH_BUCKET,
   effectiveSources,
   isTopLevelIn,
   representedChildren
@@ -28,12 +32,16 @@ const props = defineProps({
   dragEnabled: { type: Boolean, default: true },
   moveOptions: { type: Array, default: () => [] },
   /** 「DNS 走代理」的当前值，只读展示。真值在 settings.dnsConfig.throughProxy */
-  dnsThroughProxy: { type: Boolean, default: true }
+  dnsThroughProxy: { type: Boolean, default: true },
+  /** 整理模式：卡片上露出 ✕，顶部多一段回收站 */
+  editMode: { type: Boolean, default: false },
+  /** 回收站里的卡片数。非空时那一段照旧渲染，退出整理模式也不会把它藏起来 */
+  trashedCount: { type: Number, default: 0 }
 });
 
 const emit = defineEmits([
   'toggle-collapse', 'toggle-modifier', 'move', 'drop', 'child-drop',
-  'set-standalone', 'remove-source'
+  'set-standalone', 'remove-source', 'delete'
 ]);
 
 /**
@@ -75,7 +83,7 @@ const dragOptions = computed(() => ({
 }));
 
 /** 六段。顺序即规则输出顺序。 */
-const SEGMENTS = [
+const RULE_SEGMENTS = [
   // 🌐 DNS 出口：只读说明段，不接受拖放、不产出策略组。
   // 排在最前是因为 DNS 解析发生在任何规则匹配之前。
   { bucket: 'dns', labelKey: 'settings.ruleGenSegDns', droppable: false, locked: true, readonly: 'dns' },
@@ -93,6 +101,26 @@ const SEGMENTS = [
     droppable: false, locked: true }
 ];
 
+/**
+ * 🗑 回收站段。**刻意不写进 RULE_SEGMENTS** —— 那个常量是「自上而下即匹配
+ * 优先级」这条承诺本身，回收站不是一种分流归属，不该混进去。
+ *
+ * 排在最前而不是最后：整理模式下它是主要落点，垫在 🐟 漏网之鱼 之后会掉到
+ * 滚动区外面，成了一个要先滚动才能命中的拖放目标。
+ */
+const TRASH_SEGMENT = Object.freeze({
+  bucket: TRASH_BUCKET,
+  labelKey: 'settings.ruleGenSegTrash',
+  hintKey: 'settings.ruleGenSegTrashHint',
+  droppable: true,
+  trash: true
+});
+
+/** 实际渲染的段。回收站非空时照旧渲染，退出整理模式不会把待删卡片藏起来。 */
+const segments = computed(() => (props.editMode || props.trashedCount > 0
+  ? [TRASH_SEGMENT, ...RULE_SEGMENTS]
+  : RULE_SEGMENTS));
+
 /** 顶层卡片，口径由 catalog.js 的 isTopLevelIn 统一。 */
 function topLevelIn(bucket) {
   return props.cards
@@ -106,7 +134,7 @@ function topLevelIn(bucket) {
 
 const counts = computed(() => {
   const map = {};
-  SEGMENTS.forEach(segment => {
+  segments.value.forEach(segment => {
     // 只读段不承接卡片，topLevelIn 对它恒为空，不必白算
     map[segment.bucket] = segment.readonly ? 0 : topLevelIn(segment.bucket).length;
   });
@@ -145,9 +173,12 @@ function isEmptyParent(card) {
 <template>
   <div class="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 dark:border-white/10 dark:bg-gray-900/50">
     <section
-      v-for="segment in SEGMENTS"
+      v-for="segment in segments"
       :key="segment.bucket"
-      class="rounded-lg border border-gray-200 dark:border-gray-700"
+      class="rounded-lg border"
+      :class="segment.trash
+        ? 'border-dashed border-red-300 bg-red-50/40 dark:border-red-500/40 dark:bg-red-900/10'
+        : 'border-gray-200 dark:border-gray-700'"
     >
       <button
         type="button"
@@ -242,11 +273,13 @@ function isEmptyParent(card) {
                 :show-move-menu="!dragEnabled"
                 :move-options="moveOptions"
                 :conflicting="conflictingIds.has(element.id)"
-                :is-empty="isEmptyParent(element)"
+                :is-empty="!segment.trash && isEmptyParent(element)"
+                :deletable="editMode && !segment.trash"
                 @toggle="toggleCard(element.id)"
                 @toggle-standalone="emit('set-standalone', { cardId: element.id, standalone: !element.standalone })"
                 @move="value => emit('move', { cardId: element.id, bucket: value })"
                 @remove-source="sourceId => emit('remove-source', { cardId: element.id, sourceId })"
+                @delete="emit('delete', element.id)"
               />
 
               <!--
@@ -271,8 +304,10 @@ function isEmptyParent(card) {
                     :show-move-menu="!dragEnabled"
                     :move-options="moveOptions"
                     :conflicting="conflictingIds.has(child.id)"
+                    :deletable="editMode && !segment.trash"
                     @toggle-standalone="emit('set-standalone', { cardId: child.id, standalone: !child.standalone })"
                     @move="value => emit('move', { cardId: child.id, bucket: value })"
+                    @delete="emit('delete', child.id)"
                   />
                 </template>
                 <template #footer>
