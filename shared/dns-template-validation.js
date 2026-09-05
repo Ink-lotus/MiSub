@@ -238,3 +238,52 @@ export function validateDnsTemplateResolvers(template = {}) {
         DNS_TEMPLATE_FIELDS.map(field => [field, collectResolverWarnings(field, template?.[field])])
     );
 }
+
+/**
+ * 高级模式（kind: 'raw'）缺少的结构性安全字段。
+ *
+ * 高级模式的内容会**整块替换** dns（processor-service.js 的
+ * applyCustomDnsToBuiltinPreset：config.dns = parsedDns），未写的键不会从安全默认
+ * 补齐。只写 nameserver 的模板语法完全合法、validateDnsTemplateField 也判为 valid，
+ * 但产出的 dns 只有两个键——fake-ip、国内外分流、污染兜底全部丢失，国内域名会走
+ * 国外解析器。
+ *
+ * 刻意只报下面这几个「缺了就有实际后果」的键，不报全部 17 个默认键，否则成噪音：
+ *   clash   enhanced-mode（fake-ip）、nameserver-policy（geosite 分流）、
+ *           proxy-server-nameserver（代理服务器域名解析绕回隧道）、fallback-filter（污染兜底）
+ *   singbox rules（国内分流规则）、final（兜底解析器）
+ *
+ * 纯 warn：不参与 validateDnsTemplateField 的 status，不拦保存。写全套字段的用户是
+ * 刻意为之，内容无效时另有回退（无效 → 该字段清空 → 不覆盖 → 用安全默认）。
+ * surge / loon / quanx 是单行或简单键值，没有对应的结构性字段，不参与本项检查。
+ */
+export const DNS_SAFETY_KEYS = Object.freeze({
+    clash: ['enhanced-mode', 'nameserver-policy', 'proxy-server-nameserver', 'fallback-filter'],
+    singbox: ['rules', 'final']
+});
+
+export function collectMissingSafetyKeys(field, value) {
+    const expected = DNS_SAFETY_KEYS[field];
+    if (!expected) return [];
+
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!text) return [];
+
+    let parsed;
+    try {
+        parsed = field === 'clash' ? yaml.load(text) : JSON.parse(text);
+    } catch {
+        // 解析失败由 validateDnsTemplateField 报错，这里不重复提示
+        return [];
+    }
+    if (!isObject(parsed)) return [];
+
+    return expected.filter(key => parsed[key] === undefined);
+}
+
+/** 逐字段收集高级模式的结构性缺失提示 */
+export function validateDnsTemplateSafetyKeys(template = {}) {
+    return Object.fromEntries(
+        Object.keys(DNS_SAFETY_KEYS).map(field => [field, collectMissingSafetyKeys(field, template?.[field])])
+    );
+}

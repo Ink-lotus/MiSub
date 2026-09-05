@@ -299,8 +299,11 @@ function ensureAiPolicy(model) {
  * 模板模型智能优化器（主入口）
  * 包含：自动解析过滤器、注入地区组、展开占位符、清理无效引用及空组
  * @param {Object} model - 统一模板模型
+ * @param {Object} [options]
+ * @param {boolean} [options.dnsBindable=true] - 目标格式的 DNS 配置位能否绑策略组。
+ *        clash / sing-box 可以；surge / loon / quanx / egern 不行，传 false 以免注入死组。
  */
-export function applySmartModelOptimizations(model) {
+export function applySmartModelOptimizations(model, { dnsBindable = true } = {}) {
     const { ruleLevel } = model.meta || {};
     const normalizedLevel = (ruleLevel || '').toLowerCase();
     const isCustomOrNone = !normalizedLevel || normalizedLevel === 'none';
@@ -309,10 +312,14 @@ export function applySmartModelOptimizations(model) {
     resolveGroupFilters(model);
 
     // 2. DNS 出口策略组注入：
-    // 只要没用自定义 DNS（使用作者默认 Safe DNS），就保证注入 DNS 出口策略组；
-    // 只要自定义配置了 DNS，就不跟随注入 DNS 出口策略组。
+    // 三个条件全满足才注入，否则它是个没人引用的死组：
+    //   - dnsBindable：目标格式的 DNS 配置位能绑策略组（clash 的 #组名 / sing-box 的 detour）。
+    //     surge / loon / quanx 没有这种写法，由 template-pipeline 传 false
+    //   - dnsThroughProxy：用户的「DNS 走代理」开关，关闭时合成的 DNS 也不带 #组名 后缀
+    //   - 未用自定义 DNS：用户自己写的 DNS 块未必引用这个组
+    const dnsThroughProxy = model.settings?.dnsThroughProxy !== false;
     const hasCustomDns = Boolean(model.settings?.customDnsOverride && String(model.settings.customDnsOverride).trim());
-    if (!hasCustomDns) {
+    if (dnsBindable && dnsThroughProxy && !hasCustomDns) {
         ensureDnsProxyGroup(model);
     }
 

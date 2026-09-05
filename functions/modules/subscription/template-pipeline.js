@@ -73,7 +73,7 @@ export function renderSurgeFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { dnsBindable: false });
     return renderSurgeFromTemplateModel(model, options);
 }
 
@@ -90,7 +90,7 @@ export function renderLoonFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { dnsBindable: false });
     return renderLoonFromTemplateModel(model, options);
 }
 
@@ -107,7 +107,7 @@ export function renderQuanxFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { dnsBindable: false });
     return renderQuanxFromTemplateModel(model, options);
 }
 
@@ -124,6 +124,6 @@ export function renderEgernFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model);
+    model = applySmartModelOptimizations(model, { dnsBindable: false });
     return renderEgernFromTemplateModel(model);
 }

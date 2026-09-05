@@ -171,7 +171,7 @@ export function renderClashFromTemplateModel(model) {
         'external-controller': '127.0.0.1:9090',
         'dns': resolveSafeDnsConfig(normalizedModel.settings?.customDnsOverride, {
             mode: normalizedModel.settings?.dnsMode,
-            proxyGroup: DNS_PROXY_GROUP
+            proxyGroup: normalizedModel.settings?.dnsThroughProxy === false ? '' : DNS_PROXY_GROUP
         }),
         'proxies': normalizedModel.proxies,
         'proxy-groups': normalizedModel.groups

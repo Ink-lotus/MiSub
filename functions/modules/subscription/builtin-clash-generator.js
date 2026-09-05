@@ -173,11 +173,15 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
             ? ['MATCH,🚀 节点选择']
             : getBuiltinRules(levelKey, 'clash');
 
+        // 「DNS 走代理」开关：默认开。关闭时既不合成 #🌐 DNS 出口 后缀，也不创建该组。
+        const dnsThroughProxy = options.dnsThroughProxy !== false;
+        const dnsProxyGroupName = dnsThroughProxy ? DNS_PROXY_GROUP : '';
+
         // 生成策略组并执行引用修剪
         const policyGroupsFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-        let proxyGroups = policyGroupsFactory(proxies, options);
+        let proxyGroups = policyGroupsFactory(proxies, { ...options, emitDnsProxyGroup: dnsThroughProxy });
         proxyGroups = pruneProxyGroups(proxyGroups, proxies);
-        
+
         // 提取远程 Provider 定义。Hiddify 4.x 的 Clash 转 sing-box 解析对 rule-providers 兼容性较差，
         // 自动识别为 Hiddify 时降级为纯 MATCH 规则，避免导入时报 unable to determine config format。
         const ruleProviders = isHiddifyClient ? {} : getRemoteProviderDefinitions('clash', rawRules);
@@ -206,7 +210,7 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
         // 基础配置：安全默认值，不再依赖 KV 覆盖才能避免 DNS 递归。
         const dnsConfig = resolveSafeDnsConfig(options.customDnsOverride || '', {
             mode: options.dnsMode,
-            proxyGroup: DNS_PROXY_GROUP
+            proxyGroup: dnsProxyGroupName
         });
 
         const config = {

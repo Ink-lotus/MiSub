@@ -1,10 +1,16 @@
 /**
  * shared/safe-dns.js
  *
- * DNS 策略引擎 — 改造自上游 safe-dns.js，适配本仓库：
- *   - 去掉 DNS_PROXY_GROUP 后缀（方案 A），外部解析器直接走客户端默认路径
- *   - 不依赖 functions/ 路径，可被前后端共同 import
- *   - 保留上游全部引擎逻辑与地址级校验
+ * DNS 策略引擎 — 上游 functions/modules/subscription/safe-dns.js 的镜像，
+ * 放在 shared/ 是为了让前端做策略模式预览时能 import 同一份逻辑
+ * （functions/ 下的模块不在前端构建图里）。
+ *
+ * 与上游那份的差异刻意只有两处，便于每次同步上游时逐行比对：
+ *   1. 本段文件头注释
+ *   2. resolverHost 改为导出（shared/dns-template-validation.js 要用它做地址校验）
+ *
+ * 「DNS 走代理」开关通过调用方传 options.proxyGroup 表达：传空串即不加
+ * #🌐 DNS 出口 后缀，无需在本文件里改实现。
  *
  * Original: imzyb/MiSub — functions/modules/subscription/safe-dns.js
  */
@@ -15,6 +21,7 @@ export const DNS_MODES = Object.freeze({
     POLLUTED: 'polluted'
 });
 
+export const DNS_PROXY_GROUP = '🌐 DNS 出口';
 export const SINGBOX_CN_RULE_SET = 'geosite-cn';
 
 export const DEFAULT_DNS_POLICY = Object.freeze({
@@ -48,6 +55,7 @@ function clone(value) {
 function parseOverride(raw) {
     if (isObject(raw)) return raw;
     if (typeof raw !== 'string' || !raw.trim()) return {};
+
     try {
         const parsed = yaml.load(raw.trim());
         if (!isObject(parsed)) return {};
@@ -63,13 +71,6 @@ function normalizeMode(value) {
         : DNS_MODES.CLEAN;
 }
 
-/**
- * 语义校验单个解析器地址：
- *   - 拒绝回环地址 (127.x / 0.x / localhost / ::1)
- *   - 只接受 udp / tcp / tls / https scheme
- *   - 允许 'system'
- * 返回原值（合法）或空字符串（不合法）
- */
 export function resolverHost(value) {
     const raw = String(value || '').trim();
     if (!raw || raw.includes('#') || raw === 'system') return raw === 'system' ? raw : '';
@@ -95,6 +96,7 @@ function resolverList(value, fallback) {
 function plainResolver(value) {
     const raw = String(value || '').trim();
     if (!raw || raw === 'system') return '';
+
     const candidate = DNS_SCHEME_PATTERN.test(raw) ? raw : `udp://${raw}`;
     try {
         const parsed = new URL(candidate);
@@ -138,6 +140,14 @@ export function resolveDnsPolicy(raw, options = {}) {
     };
 }
 
+// proxyGroup 为空串时不加 #组名 后缀：对应「DNS 走代理」开关关闭，
+// 外部解析器直接走客户端默认路径，此时也不应创建 DNS 出口策略组。
+function withProxy(value, proxyGroup) {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'system' || !proxyGroup) return raw;
+    return `${raw}#${proxyGroup}`;
+}
+
 function cloneResolverPolicy(policy) {
     return {
         mode: policy.mode,
@@ -145,11 +155,6 @@ function cloneResolverPolicy(policy) {
         foreign: [...policy.foreign],
         polluted: [...policy.polluted]
     };
-}
-
-// 方案 A：不加 #🌐 DNS 出口 后缀，外部 DNS 走客户端默认路径
-function withProxy(value, _proxyGroup) {
-    return String(value || '').trim();
 }
 
 export const DEFAULT_DNS_CONFIG = {
@@ -170,11 +175,11 @@ export const DEFAULT_DNS_CONFIG = {
     'use-system-hosts': true,
     'respect-rules': true,
     'default-nameserver': [...DEFAULT_DNS_POLICY.domestic],
-    nameserver: DEFAULT_DNS_POLICY.foreign.map(v => withProxy(v, '')),
+    nameserver: DEFAULT_DNS_POLICY.foreign.map(value => withProxy(value, DNS_PROXY_GROUP)),
     'nameserver-policy': {
         'geosite:private': [...DEFAULT_DNS_POLICY.domestic],
         'geosite:cn': [...DEFAULT_DNS_POLICY.domestic],
-        'geosite:geolocation-!cn': DEFAULT_DNS_POLICY.foreign.map(v => withProxy(v, ''))
+        'geosite:geolocation-!cn': DEFAULT_DNS_POLICY.foreign.map(value => withProxy(value, DNS_PROXY_GROUP))
     },
     'proxy-server-nameserver': [...DEFAULT_DNS_POLICY.domestic],
     'direct-nameserver': [...DEFAULT_DNS_POLICY.domestic],
@@ -204,20 +209,22 @@ export function resolveSafeDnsConfig(raw, options = {}) {
     }
 
     const policy = resolveDnsPolicy(raw, options);
+    // 用 ?? 而非 ||：显式传空串表示「不绑策略组」，不能被默认值覆盖
+    const proxyGroup = String(options.proxyGroup ?? DNS_PROXY_GROUP);
     const foreign = policy.mode === DNS_MODES.POLLUTED ? policy.polluted : policy.foreign;
     const dns = clone(DEFAULT_DNS_CONFIG);
 
     dns['default-nameserver'] = [...policy.domestic];
-    dns.nameserver = foreign.map(v => withProxy(v, ''));
+    dns.nameserver = foreign.map(value => withProxy(value, proxyGroup));
     dns['nameserver-policy'] = {
         'geosite:private': [...policy.domestic],
         'geosite:cn': [...policy.domestic],
-        'geosite:geolocation-!cn': foreign.map(v => withProxy(v, ''))
+        'geosite:geolocation-!cn': foreign.map(value => withProxy(value, proxyGroup))
     };
     dns['proxy-server-nameserver'] = [...policy.domestic];
     dns['direct-nameserver'] = [...policy.domestic];
     dns.fallback = policy.mode === DNS_MODES.POLLUTED
-        ? foreign.map(v => withProxy(v, ''))
+        ? foreign.map(value => withProxy(value, proxyGroup))
         : [];
 
     const override = policyInput(rawOverride);
@@ -244,15 +251,17 @@ export function resolveSafeDnsConfig(raw, options = {}) {
     return dns;
 }
 
-function parseSingboxResolver(value, tag) {
+function parseSingboxResolver(value, tag, detour) {
     const raw = String(value || '').trim();
     const candidate = DNS_SCHEME_PATTERN.test(raw) ? raw : `udp://${raw}`;
     const parsed = new URL(candidate);
     const type = parsed.protocol.slice(0, -1);
     const server = parsed.hostname.replace(/^\[|\]$/g, '');
     const serverPort = Number(parsed.port) || (type === 'https' ? 443 : type === 'tls' ? 853 : 53);
-    // 方案 A：detour 留空，走客户端默认
     const result = { tag, type, server, server_port: serverPort };
+    // detour 为空表示不绑出站（「DNS 走代理」关闭），此时整个键省略而不是写空串，
+    // 否则 sing-box 会去找一个名为 "" 的 outbound。
+    if (detour) result.detour = detour;
     if (type === 'https') result.path = parsed.pathname || '/dns-query';
     if (type === 'tls') result.tls = { enabled: true, server_name: server };
     return result;
@@ -260,9 +269,11 @@ function parseSingboxResolver(value, tag) {
 
 export function buildSingboxDnsConfig(raw, options = {}) {
     const policy = resolveDnsPolicy(raw, options);
+    // 用 ?? 而非 ||：显式传空串表示「不绑策略组」，不能被默认值覆盖
+    const proxyGroup = String(options.proxyGroup ?? DNS_PROXY_GROUP);
     const foreign = policy.mode === DNS_MODES.POLLUTED ? policy.polluted : policy.foreign;
-    const domesticServers = policy.domestic.map((value, index) => parseSingboxResolver(value, `dns-cn-${index + 1}`));
-    const foreignServers = foreign.map((value, index) => parseSingboxResolver(value, `dns-foreign-${index + 1}`));
+    const domesticServers = policy.domestic.map((value, index) => parseSingboxResolver(value, `dns-cn-${index + 1}`, 'DIRECT'));
+    const foreignServers = foreign.map((value, index) => parseSingboxResolver(value, `dns-foreign-${index + 1}`, proxyGroup));
     const domesticTag = domesticServers[0]?.tag || 'dns-cn-1';
     const foreignTag = foreignServers[0]?.tag || 'dns-foreign-1';
 

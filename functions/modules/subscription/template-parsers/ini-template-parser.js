@@ -184,7 +184,8 @@ export function parseIniTemplate(templateText, options = {}) {
             skipCertVerify: Boolean(options.skipCertVerify),
             enableUdp: Boolean(options.enableUdp),
             customDnsOverride: options.customDnsOverride || '',
-            dnsMode: options.dnsMode || 'clean'
+            dnsMode: options.dnsMode || 'clean',
+            dnsThroughProxy: options.dnsThroughProxy !== false
         }
     });
 }

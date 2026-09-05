@@ -124,9 +124,11 @@ export function resolveDnsPolicy(raw, options = {}) {
     };
 }
 
+// proxyGroup 为空串时不加 #组名 后缀：对应「DNS 走代理」开关关闭，
+// 外部解析器直接走客户端默认路径，此时也不应创建 DNS 出口策略组。
 function withProxy(value, proxyGroup) {
     const raw = String(value || '').trim();
-    if (!raw || raw === 'system') return raw;
+    if (!raw || raw === 'system' || !proxyGroup) return raw;
     return `${raw}#${proxyGroup}`;
 }
 
@@ -191,7 +193,8 @@ export function resolveSafeDnsConfig(raw, options = {}) {
     }
 
     const policy = resolveDnsPolicy(raw, options);
-    const proxyGroup = String(options.proxyGroup || DNS_PROXY_GROUP);
+    // 用 ?? 而非 ||：显式传空串表示「不绑策略组」，不能被默认值覆盖
+    const proxyGroup = String(options.proxyGroup ?? DNS_PROXY_GROUP);
     const foreign = policy.mode === DNS_MODES.POLLUTED ? policy.polluted : policy.foreign;
     const dns = clone(DEFAULT_DNS_CONFIG);
 
@@ -239,7 +242,10 @@ function parseSingboxResolver(value, tag, detour) {
     const type = parsed.protocol.slice(0, -1);
     const server = parsed.hostname.replace(/^\[|\]$/g, '');
     const serverPort = Number(parsed.port) || (type === 'https' ? 443 : type === 'tls' ? 853 : 53);
-    const result = { tag, type, server, server_port: serverPort, detour };
+    const result = { tag, type, server, server_port: serverPort };
+    // detour 为空表示不绑出站（「DNS 走代理」关闭），此时整个键省略而不是写空串，
+    // 否则 sing-box 会去找一个名为 "" 的 outbound。
+    if (detour) result.detour = detour;
     if (type === 'https') result.path = parsed.pathname || '/dns-query';
     if (type === 'tls') result.tls = { enabled: true, server_name: server };
     return result;
@@ -247,7 +253,8 @@ function parseSingboxResolver(value, tag, detour) {
 
 export function buildSingboxDnsConfig(raw, options = {}) {
     const policy = resolveDnsPolicy(raw, options);
-    const proxyGroup = String(options.proxyGroup || DNS_PROXY_GROUP);
+    // 用 ?? 而非 ||：显式传空串表示「不绑策略组」，不能被默认值覆盖
+    const proxyGroup = String(options.proxyGroup ?? DNS_PROXY_GROUP);
     const foreign = policy.mode === DNS_MODES.POLLUTED ? policy.polluted : policy.foreign;
     const domesticServers = policy.domestic.map((value, index) => parseSingboxResolver(value, `dns-cn-${index + 1}`, 'DIRECT'));
     const foreignServers = foreign.map((value, index) => parseSingboxResolver(value, `dns-foreign-${index + 1}`, proxyGroup));

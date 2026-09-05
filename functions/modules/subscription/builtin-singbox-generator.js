@@ -280,9 +280,11 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     }
 
     const levelKey = (ruleLevel || 'std').toUpperCase();
+    // 「DNS 走代理」开关：默认开。关闭时 DNS server 不绑 detour，也不创建 DNS 出口出站。
+    const dnsThroughProxy = options.dnsThroughProxy !== false;
     // 获取内置策略组
     const policyGroupsFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
-    let proxyGroups = policyGroupsFactory(outbounds, options);
+    let proxyGroups = policyGroupsFactory(outbounds, { ...options, emitDnsProxyGroup: dnsThroughProxy });
     proxyGroups = pruneProxyGroups(proxyGroups, outbounds);
 
     if (levelKey === 'RELAY') {
@@ -333,9 +335,9 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     const rawRules = getBuiltinRules(levelKey, 'singbox');
     
     // 提取远程 Rule Set 定义 (Sing-Box 格式)
-    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules);
+    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules, { emitDnsProxyGroup: dnsThroughProxy });
     const ruleSets = [
-        getSingboxDnsRuleSet(),
+        getSingboxDnsRuleSet({ emitDnsProxyGroup: dnsThroughProxy }),
         ...Object.values(ruleSetsMap).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
 
@@ -352,7 +354,7 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
 
     const dnsConfig = buildSingboxDnsConfig(options.customDnsOverride || '', {
         mode: options.dnsMode,
-        proxyGroup: DNS_PROXY_GROUP
+        proxyGroup: dnsThroughProxy ? DNS_PROXY_GROUP : ''
     });
 
     const config = {

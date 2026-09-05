@@ -8,7 +8,10 @@ import {
   collectResolverWarnings,
   validateDnsTemplateResolvers,
   isLoopbackResolver,
-  validateDnsTemplateField
+  validateDnsTemplateField,
+  collectMissingSafetyKeys,
+  validateDnsTemplateSafetyKeys,
+  DNS_SAFETY_KEYS
 } from '../../shared/dns-template-validation.js';
 
 describe('手写模板解析器地址提示：isLoopbackResolver', () => {
@@ -152,5 +155,133 @@ describe('手写模板解析器地址提示：UI 呈现', () => {
 
     expect(wrapper.find('[data-dns-resolver-warning="clash"]').exists()).toBe(false);
     expect(wrapper.find('[data-dns-resolver-badge="clash"]').exists()).toBe(false);
+  });
+});
+
+describe('高级模式结构性字段提示：collectMissingSafetyKeys', () => {
+  it('只写 nameserver 的 clash 模板报出全部四个关键字段', () => {
+    expect(collectMissingSafetyKeys('clash', 'enable: true\nnameserver:\n  - 1.1.1.1'))
+      .toEqual(DNS_SAFETY_KEYS.clash);
+  });
+
+  it('写全关键字段后不再提示', () => {
+    const full = [
+      'enable: true',
+      'enhanced-mode: fake-ip',
+      'nameserver:',
+      '  - 1.1.1.1',
+      'nameserver-policy:',
+      '  geosite:cn:',
+      '    - 223.5.5.5',
+      'proxy-server-nameserver:',
+      '  - 223.5.5.5',
+      'fallback-filter:',
+      '  geoip: true'
+    ].join('\n');
+    expect(collectMissingSafetyKeys('clash', full)).toEqual([]);
+  });
+
+  it('部分缺失只报缺的那几个', () => {
+    const partial = 'enhanced-mode: fake-ip\nnameserver:\n  - 1.1.1.1';
+    expect(collectMissingSafetyKeys('clash', partial))
+      .toEqual(['nameserver-policy', 'proxy-server-nameserver', 'fallback-filter']);
+  });
+
+  it('singbox 检查 rules 与 final', () => {
+    expect(collectMissingSafetyKeys('singbox', JSON.stringify({ servers: [] })))
+      .toEqual(['rules', 'final']);
+    expect(collectMissingSafetyKeys('singbox', JSON.stringify({ servers: [], rules: [], final: 'x' })))
+      .toEqual([]);
+  });
+
+  it('surge / loon / quanx 不参与本项检查', () => {
+    for (const field of ['surge', 'loon', 'quanx']) {
+      expect(collectMissingSafetyKeys(field, '9.9.9.9')).toEqual([]);
+    }
+  });
+
+  it('空值与解析失败都不提示，避免与格式错误重复报', () => {
+    expect(collectMissingSafetyKeys('clash', '')).toEqual([]);
+    expect(collectMissingSafetyKeys('clash', '   ')).toEqual([]);
+    expect(collectMissingSafetyKeys('clash', '::not yaml: [')).toEqual([]);
+    expect(collectMissingSafetyKeys('singbox', '{bad json')).toEqual([]);
+    // 数组不是映射体，交给 status 报 objectRequired
+    expect(collectMissingSafetyKeys('clash', '- 1.1.1.1')).toEqual([]);
+  });
+
+  it('validateDnsTemplateSafetyKeys 只覆盖 clash 与 singbox 两个字段', () => {
+    const result = validateDnsTemplateSafetyKeys({ clash: 'nameserver:\n  - 1.1.1.1', singbox: '' });
+    expect(Object.keys(result).sort()).toEqual(['clash', 'singbox']);
+    expect(result.clash).toEqual(DNS_SAFETY_KEYS.clash);
+    expect(result.singbox).toEqual([]);
+  });
+
+  it('提示为纯 warn，不影响 status 判定', () => {
+    const partial = 'enable: true\nnameserver:\n  - 1.1.1.1';
+    expect(collectMissingSafetyKeys('clash', partial).length).toBeGreaterThan(0);
+    expect(validateDnsTemplateField('clash', partial).status).toBe('valid');
+  });
+});
+
+describe('高级模式结构性字段提示：UI 呈现', () => {
+  let pinia;
+
+  const seed = templates => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+    useDataStore().dnsTemplates = templates;
+  };
+
+  const mountManager = () => mount(DnsTemplateManager, {
+    global: { plugins: [pinia, createI18n({ initialLocale: 'zh-CN' })] }
+  });
+
+  const rawTemplate = clash => ({
+    id: 'dns-safety',
+    name: '结构测试',
+    enabled: true,
+    kind: 'raw',
+    clash,
+    singbox: '',
+    surge: '',
+    loon: '',
+    quanx: ''
+  });
+
+  it('折叠状态下用角标提示缺失字段数', () => {
+    seed([rawTemplate('enable: true\nnameserver:\n  - 1.1.1.1')]);
+    const wrapper = mountManager();
+
+    expect(wrapper.get('[data-dns-safety-badge="clash"]').text()).toBe('!4');
+  });
+
+  it('展开后列出缺失的字段名，且 status 仍是格式有效', async () => {
+    seed([rawTemplate('enable: true\nnameserver:\n  - 1.1.1.1')]);
+    const wrapper = mountManager();
+    await wrapper.get('[data-dns-toggle="clash"]').trigger('click');
+
+    const warning = wrapper.get('[data-dns-safety-warning="clash"]').text();
+    expect(warning).toContain('enhanced-mode');
+    expect(warning).toContain('nameserver-policy');
+    expect(wrapper.get('[data-dns-status="clash"]').text()).toContain('格式有效');
+  });
+
+  it('策略模式不显示该提示：块由引擎合成，本就完整', () => {
+    seed([{
+      id: 'dns-policy',
+      name: '策略模板',
+      enabled: true,
+      kind: 'policy',
+      policy: { mode: 'clean', domestic: ['223.5.5.5'], foreign: ['8.8.8.8'], polluted: [] },
+      clash: 'enable: true\nnameserver:\n  - 1.1.1.1',
+      singbox: '',
+      surge: '',
+      loon: '',
+      quanx: ''
+    }]);
+    const wrapper = mountManager();
+
+    expect(wrapper.find('[data-dns-safety-badge="clash"]').exists()).toBe(false);
+    expect(wrapper.find('[data-dns-safety-warning="clash"]').exists()).toBe(false);
   });
 });

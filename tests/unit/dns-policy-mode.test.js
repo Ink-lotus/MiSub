@@ -5,7 +5,8 @@ import {
     buildSingboxDnsConfig,
     resolverHost,
     isExplicitDnsBlock,
-    DNS_MODES
+    DNS_MODES,
+    DNS_PROXY_GROUP
 } from '../../shared/safe-dns.js';
 import { validatePolicyRecord } from '../../shared/dns-template-validation.js';
 import { normalizeDnsTemplates, resolveEffectiveDnsConfig } from '../../functions/modules/dns-template-handler.js';
@@ -19,7 +20,7 @@ const POLICY = Object.freeze({
 
 describe('safe-dns 引擎：clash DNS 块合成', () => {
     it('clean 模式产出 fake-ip 与 geosite 分流的完整块', () => {
-        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.CLEAN });
+        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.CLEAN, proxyGroup: '' });
 
         expect(dns.enable).toBe(true);
         expect(dns.ipv6).toBe(false);
@@ -48,19 +49,36 @@ describe('safe-dns 引擎：clash DNS 块合成', () => {
     });
 
     it('polluted 模式改用 DoH 解析器并填充 fallback', () => {
-        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.POLLUTED });
+        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.POLLUTED, proxyGroup: '' });
         expect(dns.nameserver).toEqual(['https://1.1.1.1/dns-query']);
         expect(dns.fallback).toEqual(['https://1.1.1.1/dns-query']);
     });
 
-    it('方案 A：不给解析器附加 #🌐 DNS 出口 策略组后缀', () => {
+    it('DNS 走代理开启（默认）时外部解析器带 #🌐 DNS 出口 后缀，国内解析器不带', () => {
         const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.CLEAN });
+
+        expect(dns.nameserver).toEqual([`udp://8.8.8.8:53#${DNS_PROXY_GROUP}`]);
+        expect(dns['nameserver-policy']['geosite:geolocation-!cn'])
+            .toEqual([`udp://8.8.8.8:53#${DNS_PROXY_GROUP}`]);
+        // 国内解析器要直连，绑到代理组就绕远且可能解析到国外 IP
+        expect(dns['default-nameserver']).toEqual(['223.5.5.5']);
+        expect(dns['nameserver-policy']['geosite:cn']).toEqual(['223.5.5.5']);
+        expect(dns['proxy-server-nameserver']).toEqual(['223.5.5.5']);
+    });
+
+    it('DNS 走代理关闭（proxyGroup 传空串）时任何解析器都不带后缀', () => {
+        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.CLEAN, proxyGroup: '' });
         const allResolvers = [
             ...dns.nameserver,
             ...dns['default-nameserver'],
             ...Object.values(dns['nameserver-policy']).flat()
         ];
         expect(allResolvers.every(v => !v.includes('#'))).toBe(true);
+    });
+
+    it('polluted + 走代理开启时 fallback 也带后缀', () => {
+        const dns = resolveSafeDnsConfig(POLICY, { mode: DNS_MODES.POLLUTED });
+        expect(dns.fallback).toEqual([`https://1.1.1.1/dns-query#${DNS_PROXY_GROUP}`]);
     });
 
     it('识别用户写的完整 dns 块并原样透传（高级模式逃生门）', () => {
@@ -102,9 +120,18 @@ describe('safe-dns 引擎：sing-box DNS 合成', () => {
         expect(foreign.path).toBe('/dns-query');
     });
 
-    it('方案 A：servers 不带 detour 字段', () => {
+    it('DNS 走代理开启（默认）时外部 server 绑 detour，国内 server 绑 DIRECT', () => {
         const dns = buildSingboxDnsConfig(POLICY, { mode: DNS_MODES.CLEAN });
-        expect(dns.servers.every(s => s.detour === undefined)).toBe(true);
+        expect(dns.servers.find(s => s.tag === 'dns-foreign-1').detour).toBe(DNS_PROXY_GROUP);
+        expect(dns.servers.find(s => s.tag === 'dns-cn-1').detour).toBe('DIRECT');
+    });
+
+    it('DNS 走代理关闭时外部 server 省略 detour 键，而不是写空串', () => {
+        const dns = buildSingboxDnsConfig(POLICY, { mode: DNS_MODES.CLEAN, proxyGroup: '' });
+        const foreign = dns.servers.find(s => s.tag === 'dns-foreign-1');
+        expect('detour' in foreign).toBe(false);
+        // 国内 server 的 DIRECT 出站恒定存在，不受开关影响
+        expect(dns.servers.find(s => s.tag === 'dns-cn-1').detour).toBe('DIRECT');
     });
 });
 
@@ -229,9 +256,10 @@ describe('resolveEffectiveDnsConfig：策略模式合成', () => {
         quanx: ''
     };
 
-    const resolve = (templates, globalId = 'p1') => resolveEffectiveDnsConfig({
+    const resolve = (templates, globalId = 'p1', extra = {}) => resolveEffectiveDnsConfig({
         globalDns: { mode: 'template', templateId: globalId },
-        templates
+        templates,
+        ...extra
     });
 
     it('返回五个格式字段，形状与手写模式一致', () => {
@@ -240,15 +268,28 @@ describe('resolveEffectiveDnsConfig：策略模式合成', () => {
     });
 
     it('clash 字段是可解析的 YAML 且含 fake-ip 与 geosite 分流', () => {
-        const dns = yaml.load(resolve([policyTemplate]).clash);
+        const dns = yaml.load(resolve([policyTemplate], 'p1', { dnsThroughProxy: false }).clash);
         expect(dns['enhanced-mode']).toBe('fake-ip');
         expect(dns.nameserver).toEqual(['udp://8.8.8.8:53']);
         expect(Object.keys(dns['nameserver-policy']))
             .toEqual(['geosite:private', 'geosite:cn', 'geosite:geolocation-!cn']);
     });
 
+    it('dnsThroughProxy 缺省时合成结果带 #🌐 DNS 出口 后缀，与生成器创建的组对齐', () => {
+        const dns = yaml.load(resolve([policyTemplate]).clash);
+        expect(dns.nameserver).toEqual([`udp://8.8.8.8:53#${DNS_PROXY_GROUP}`]);
+        const singbox = JSON.parse(resolve([policyTemplate]).singbox);
+        expect(singbox.servers.find(s => s.tag === 'dns-foreign-1').detour).toBe(DNS_PROXY_GROUP);
+    });
+
+    it('dnsThroughProxy 为 false 时合成结果不引用该组，避免引用不存在的策略组', () => {
+        const r = resolve([policyTemplate], 'p1', { dnsThroughProxy: false });
+        expect(r.clash).not.toContain(DNS_PROXY_GROUP);
+        expect(r.singbox).not.toContain(DNS_PROXY_GROUP);
+    });
+
     it('singbox 字段是可解析的 JSON 且含 servers 与 rules', () => {
-        const dns = JSON.parse(resolve([policyTemplate]).singbox);
+        const dns = JSON.parse(resolve([policyTemplate], 'p1', { dnsThroughProxy: false }).singbox);
         expect(dns.servers.map(s => s.tag)).toEqual(['dns-cn-1', 'dns-foreign-1']);
         expect(dns.final).toBe('dns-foreign-1');
         expect(dns.rules).toHaveLength(2);
@@ -266,7 +307,7 @@ describe('resolveEffectiveDnsConfig：策略模式合成', () => {
             ...policyTemplate,
             policy: { mode: 'polluted', domestic: ['223.5.5.5'], foreign: [], polluted: ['https://1.1.1.1/dns-query'] }
         };
-        const dns = yaml.load(resolve([polluted]).clash);
+        const dns = yaml.load(resolve([polluted], 'p1', { dnsThroughProxy: false }).clash);
         expect(dns.nameserver).toEqual(['https://1.1.1.1/dns-query']);
         expect(dns.fallback).toEqual(['https://1.1.1.1/dns-query']);
     });

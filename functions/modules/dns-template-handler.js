@@ -2,7 +2,7 @@ import yaml from 'js-yaml';
 import { StorageFactory } from '../storage-adapter.js';
 import { createJsonResponse, createErrorResponse, readJsonWithLimit } from './utils.js';
 import { filterValidDnsTemplateFields, DNS_TEMPLATE_KINDS } from '../../shared/dns-template-validation.js';
-import { resolveSafeDnsConfig, buildSingboxDnsConfig } from '../../shared/safe-dns.js';
+import { resolveSafeDnsConfig, buildSingboxDnsConfig, DNS_PROXY_GROUP } from '../../shared/safe-dns.js';
 
 export const KV_KEY_DNS_TEMPLATES = 'misub_dns_templates_v1';
 const MAX_TEMPLATE_COUNT = 50;
@@ -87,7 +87,20 @@ export async function listDnsTemplates(storageAdapter) {
     return normalizeDnsTemplates(Array.isArray(raw) ? raw : []);
 }
 
-export function resolveEffectiveDnsConfig({ profileDns = {}, globalDns = {}, templates = [] } = {}) {
+/**
+ * 解析生效的 DNS 配置。
+ *
+ * @param {Object}   params
+ * @param {Object}   params.profileDns  Profile 级 dnsConfig
+ * @param {Object}   params.globalDns   全局 dnsConfig
+ * @param {Array}    params.templates   DNS 模板库
+ * @param {boolean} [params.dnsThroughProxy=true] 「DNS 走代理」开关。
+ *        策略模式合成的 clash / sing-box 块会整块替换掉生成器产出的 dns，
+ *        因此这里必须与生成器用同一个开关值：关闭时不加 #🌐 DNS 出口 后缀，
+ *        否则合成出的块会引用一个不会被创建的策略组。
+ */
+export function resolveEffectiveDnsConfig({ profileDns = {}, globalDns = {}, templates = [], dnsThroughProxy = true } = {}) {
+    const proxyGroup = dnsThroughProxy ? DNS_PROXY_GROUP : '';
     const pick = (mode, templateId) => {
         if (mode !== 'template' || !templateId) return null;
         const tpl = templates.find(t => t.enabled !== false && t.id === templateId);
@@ -95,8 +108,8 @@ export function resolveEffectiveDnsConfig({ profileDns = {}, globalDns = {}, tem
 
         // 策略模式：合成 clash / singbox 文本；其余格式无手写内容时保持空
         if (tpl.kind === 'policy' && tpl.policy) {
-            const clashDns = resolveSafeDnsConfig(tpl.policy, { mode: tpl.policy.mode });
-            const singboxDns = buildSingboxDnsConfig(tpl.policy, { mode: tpl.policy.mode });
+            const clashDns = resolveSafeDnsConfig(tpl.policy, { mode: tpl.policy.mode, proxyGroup });
+            const singboxDns = buildSingboxDnsConfig(tpl.policy, { mode: tpl.policy.mode, proxyGroup });
             return {
                 clash: yaml.dump(clashDns, { indent: 2, lineWidth: -1, noRefs: true }),
                 singbox: JSON.stringify(singboxDns, null, 2),

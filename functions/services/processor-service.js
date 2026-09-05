@@ -13,7 +13,7 @@ import { base64EncodeUtf8 } from '../modules/utils.js';
 import yaml from 'js-yaml';
 import { urlsToClashProxies } from '../utils/url-to-clash.js';
 import { clashFix } from '../utils/format-utils.js';
-import { resolveSafeDnsConfig } from '../modules/subscription/safe-dns.js';
+import { resolveSafeDnsConfig, DNS_PROXY_GROUP } from '../modules/subscription/safe-dns.js';
 
 function getTemplateExtension(templateUrl) {
     const raw = typeof templateUrl === 'string' ? templateUrl.trim() : '';
@@ -83,6 +83,13 @@ export function renderClashYamlProfileTemplate(templateText, nodeList, options =
     const proxies = urlsToClashProxies(nodeUrls, options).map(stripInternalProxyFields);
     deduplicateProxyNames(proxies);
 
+    // 用户自带的 Clash YAML 模板里的策略组由他们自己写，我们不往里塞组。
+    // 因此只有当模板确实定义了 🌐 DNS 出口 时才把 DNS 绑上去，否则绑了就是引用不存在的组。
+    // 「DNS 走代理」开关关闭时同样不绑。
+    const hasDnsExitGroup = Array.isArray(config['proxy-groups'])
+        && config['proxy-groups'].some(group => group?.name === DNS_PROXY_GROUP);
+    const dnsProxyGroupName = (options.dnsThroughProxy !== false && hasDnsExitGroup) ? DNS_PROXY_GROUP : '';
+
     return yaml.dump({
         ...config,
         'allow-lan': false,
@@ -91,7 +98,7 @@ export function renderClashYamlProfileTemplate(templateText, nodeList, options =
         'external-controller': '127.0.0.1:9090',
         dns: resolveSafeDnsConfig(config.dns, {
             mode: options.dnsMode,
-            proxyGroup: '🌐 DNS 出口'
+            proxyGroup: dnsProxyGroupName
         }),
         proxies
     }, {
@@ -256,7 +263,8 @@ export class ProcessorService {
                     enableUdp: builtinOptions.enableUdp,
                     isMeta: builtinOptions.isMeta,
                     customDnsOverride: builtinOptions.customDnsOverride || '',
-                    dnsMode: builtinOptions.dnsMode || 'clean'
+                    dnsMode: builtinOptions.dnsMode || 'clean',
+                    dnsThroughProxy: builtinOptions.dnsThroughProxy !== false
                 };
 
                 switch (targetFormat) {

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useDataStore } from '@/stores/useDataStore.js';
 import { useI18n } from '@/i18n/index.js';
-import { validateDnsTemplate, validatePolicyRecord, validateDnsTemplateResolvers, DNS_POLICY_WARNING_CODES } from '../../../../../shared/dns-template-validation.js';
+import { validateDnsTemplate, validatePolicyRecord, validateDnsTemplateResolvers, validateDnsTemplateSafetyKeys, DNS_POLICY_WARNING_CODES } from '../../../../../shared/dns-template-validation.js';
 
 const { t } = useI18n();
 
@@ -33,7 +33,7 @@ const blankTemplate = () => ({
   name: '',
   description: '',
   enabled: true,
-  kind: 'raw',
+  kind: 'policy',
   policy: { mode: 'clean', domestic: [], foreign: [], polluted: [] },
   clash: '',
   singbox: '',
@@ -93,6 +93,15 @@ const resolverWarnings = computed(() => validateDnsTemplateResolvers(selectedTem
 
 function fieldResolverWarnings(field) {
   return resolverWarnings.value[field] || [];
+}
+
+// 高级模式缺少的结构性安全字段；策略模式由引擎合成完整块，不需要这项提示
+const safetyKeyWarnings = computed(() => (
+  isPolicyMode.value ? {} : validateDnsTemplateSafetyKeys(selectedTemplate.value || {})
+));
+
+function fieldSafetyKeyWarnings(field) {
+  return safetyKeyWarnings.value[field] || [];
 }
 
 // 解析器列表在 UI 上按行编辑，存储仍是数组
@@ -415,6 +424,12 @@ async function saveTemplates() {
                   :title="t('settings.dnsResolverLoopbackWarning')"
                   class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                 >{{ fieldResolverWarnings(field.key).length }}</span>
+                <span
+                  v-if="fieldSafetyKeyWarnings(field.key).length"
+                  :data-dns-safety-badge="field.key"
+                  :title="t('settings.dnsSafetyKeysWarning')"
+                  class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                >!{{ fieldSafetyKeyWarnings(field.key).length }}</span>
                 <span :data-dns-status="field.key" class="flex items-center gap-1.5 text-[11px] font-semibold" :class="statusTextClass(field.key)">
                   <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(field.key)"></span>
                   {{ validationLabel(field.key) }}
@@ -456,6 +471,13 @@ async function saveTemplates() {
                 class="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400"
               >
                 {{ t('settings.dnsResolverLoopbackWarning') }} {{ fieldResolverWarnings(field.key).join('、') }}
+              </p>
+              <p
+                v-if="fieldSafetyKeyWarnings(field.key).length"
+                :data-dns-safety-warning="field.key"
+                class="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400"
+              >
+                {{ t('settings.dnsSafetyKeysWarning') }} {{ fieldSafetyKeyWarnings(field.key).join('、') }}
               </p>
             </div>
           </div>

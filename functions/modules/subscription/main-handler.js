@@ -433,6 +433,18 @@ export function resolveEffectiveEngine({
     return profileEngineMode || globalEngineMode || 'builtin';
 }
 
+/**
+ * 「DNS 走代理」的取值优先级：Profile 显式设置 > 全局设置 > 默认开。
+ *
+ * 只认布尔值：Profile 的 dnsConfig 里没有 throughProxy 键时视为「跟随全局」，
+ * 而不是「关闭」——否则所有存量 Profile 都会被当成显式关掉。
+ */
+export function resolveDnsThroughProxy(profileDns, globalDns) {
+    if (typeof profileDns?.throughProxy === 'boolean') return profileDns.throughProxy;
+    if (typeof globalDns?.throughProxy === 'boolean') return globalDns.throughProxy;
+    return true;
+}
+
 export function resolveBuiltinRequestOptions({ searchParams, userAgent = '' } = {}) {
     const params = searchParams || new URLSearchParams('');
     const dnsMode = params.get('dns-mode') || params.get('dnsMode') || '';
@@ -903,6 +915,9 @@ export async function handleMisubRequest(context) {
         });
     }
 
+    // 「DNS 走代理」：Profile 未显式设置时跟随全局，两者都没有则默认开
+    const dnsThroughProxy = resolveDnsThroughProxy(currentProfile?.dnsConfig, config.dnsConfig);
+
     // 解析自定义 DNS：Profile 指定模板 > 全局模板 > 内置默认
     let customDns = null;
     try {
@@ -910,7 +925,8 @@ export async function handleMisubRequest(context) {
         customDns = resolveEffectiveDnsConfig({
             profileDns: currentProfile?.dnsConfig,
             globalDns: config.dnsConfig,
-            templates: dnsTemplates
+            templates: dnsTemplates,
+            dnsThroughProxy
         });
     } catch (e) {
         console.warn('[CustomDns] resolve failed, using default:', e?.message || e);
@@ -933,8 +949,12 @@ export async function handleMisubRequest(context) {
                     regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
                     isMeta: isMetaCore(userAgentHeader, url.searchParams),
                     customDns,
-                    customDnsOverride: config.customDnsOverride || '',
-                    dnsMode: url.searchParams.get('dns-mode') || url.searchParams.get('dnsMode') || config.dnsMode || 'clean'
+                    // 刻意不传 customDnsOverride：用户可配的 DNS 入口统一为 DNS 模板库
+                    // （customDns，见 resolveEffectiveDnsConfig）。上游那个全局单值设置与
+                    // 它的界面已移除，此处不再回读残留的旧值，否则老配置会无声生效且无处可改。
+                    // 生成器侧仍保留该 option（收到空值即产出安全默认 DNS），以便与上游同步。
+                    dnsMode: url.searchParams.get('dns-mode') || url.searchParams.get('dnsMode') || config.dnsMode || 'clean',
+                    dnsThroughProxy
                 };
                 const rendered = await ProcessorService.renderOutput({
                     targetFormat,
@@ -1074,8 +1094,9 @@ export async function handleMisubRequest(context) {
         regionOverrides: Array.isArray(config.regionOverrides) ? config.regionOverrides : [],
         isMeta: isMetaCore(userAgentHeader, url.searchParams),
         customDns,
-        customDnsOverride: config.customDnsOverride || '',
-        dnsMode: url.searchParams.get('dns-mode') || url.searchParams.get('dnsMode') || config.dnsMode || 'clean'
+        // 同上：用户可配的 DNS 入口只有 DNS 模板库，不回读 customDnsOverride 残留值
+        dnsMode: url.searchParams.get('dns-mode') || url.searchParams.get('dnsMode') || config.dnsMode || 'clean',
+        dnsThroughProxy
     };
 
     const managedConfigUrl = buildManagedConfigUrl(request.url);

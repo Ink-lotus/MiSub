@@ -158,9 +158,13 @@ export const DEFAULT_SETTINGS = {
         }
     },
     // 自定义 DNS 模板：mode='builtin'|'template'，templateId 引用 DNS 模板库
+    // dnsThroughProxy：DNS 查询是否走代理。开启则 clash / sing-box 的外部解析器绑到
+    // 一个隐藏策略组「🌐 DNS 出口」；关闭则不绑、也不创建该组。
+    // surge / loon / quanx 的 DNS 配置位没有绑定策略的写法，不受此开关影响。
     dnsConfig: {
         mode: 'builtin',
-        templateId: ''
+        templateId: '',
+        throughProxy: true
     }
 };
 

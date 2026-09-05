@@ -129,12 +129,13 @@ prependGroupName: false
         }
     },
     // 自定义 DNS 模板：mode='builtin'|'template'，templateId 引用 DNS 模板库
+    // throughProxy：DNS 查询是否走代理（详见 functions/modules/config.js 同名字段注释）
     dnsConfig: {
         mode: 'builtin',
-        templateId: ''
+        templateId: '',
+        throughProxy: true
     },
     // 自定义公开页
-    customDnsOverride: '',
     customPage: {
         enabled: false,
         type: 'html',

@@ -115,7 +115,7 @@ describe('DNS 生效优先级', () => {
 });
 
 describe('全局默认 dnsConfig', () => {
-  it('全局默认 dnsConfig 为 builtin 空 templateId', () => {
-    expect(DEFAULT_SETTINGS.dnsConfig).toEqual({ mode: 'builtin', templateId: '' });
+  it('全局默认 dnsConfig 为 builtin 空 templateId，DNS 走代理默认开', () => {
+    expect(DEFAULT_SETTINGS.dnsConfig).toEqual({ mode: 'builtin', templateId: '', throughProxy: true });
   });
 });

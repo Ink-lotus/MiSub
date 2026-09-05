@@ -29,14 +29,27 @@ export const AI_DOMAIN_RULE_LINES = AI_SERVICE_RULES.flatMap(service =>
 const AI_AUTO_GROUP = '🤖 AI 自动';
 const AI_FALLBACK_GROUP = '🤖 AI 故障转移';
 
-function dnsProxyGroup(proxyNames) {
-    return {
+/**
+ * 「DNS 走代理」的隐藏策略组。
+ *
+ * 只在 options.emitDnsProxyGroup === true 时产出，刻意要求显式开启：
+ *   - clash / sing-box 的 DNS 能绑策略组（nameserver 带 #组名 / server 带 detour），
+ *     由这两个生成器按用户开关传入 true
+ *   - surge / loon / quanx 的 DNS 配置位没有绑定策略的写法，它们不传这个标志，
+ *     因此不会拿到一个没人引用的死组
+ *
+ * hidden: true 让 mihomo 面板不展示它——这不是用户会去点选的策略组，
+ * 而是 DNS 路由的实现细节。非 Meta 内核不认该字段，组会可见（无害）。
+ */
+function dnsProxyGroups(proxyNames, options = {}) {
+    if (options.emitDnsProxyGroup !== true) return [];
+    return [{
         name: DNS_PROXY_GROUP,
         type: 'url-test',
         proxies: proxyNames.length > 0 ? proxyNames : ['REJECT'],
         hidden: true,
         options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
-    };
+    }];
 }
 
 function aiPolicyGroups(proxyNames, regionNames, { relay = false } = {}) {
@@ -157,7 +170,7 @@ export const POLICY_GROUPS = {
     BASE: (proxies, options = {}) => {
         const proxyNames = proxies.map(p => p.tag || p.name);
         return [
-            dnsProxyGroup(proxyNames),
+            ...dnsProxyGroups(proxyNames, options),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
@@ -171,7 +184,7 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
+            ...dnsProxyGroups(proxyNames, options),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
@@ -192,7 +205,7 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
+            ...dnsProxyGroups(proxyNames, options),
             { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
             { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
             { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
@@ -216,7 +229,7 @@ export const POLICY_GROUPS = {
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
+            ...dnsProxyGroups(proxyNames, options),
             { name: DEFAULT_RELAY_GROUP, type: 'select', proxies: ['🔗 链式代理', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, '🚀 常用节点', ...regionNames, 'DIRECT'] },
             // 保持 provider 层为通用 select，不在抽象层输出 relay 语义。
             // 否则模板渲染/普通 Clash 路径可能把它转换成 Mihomo 专属 dialer-proxy，导致客户端拉取失败。
@@ -452,7 +465,7 @@ export function getBuiltinRules(level, format) {
  * @param {string} format 
  * @param {Array} ruleLines (翻译后的规则行)
  */
-export function getRemoteProviderDefinitions(format, ruleLines) {
+export function getRemoteProviderDefinitions(format, ruleLines, options = {}) {
     const providers = {};
     const usedTags = new Set();
 
@@ -483,7 +496,8 @@ export function getRemoteProviderDefinitions(format, ruleLines) {
                 format: String(source.singbox || '').toLowerCase().endsWith('.srs') ? 'binary' : 'source',
                 url: pinRemoteRuleUrl(source.singbox),
                 update_interval: '24h',
-                download_detour: DNS_PROXY_GROUP
+                // 只在 DNS 出口组确实存在时才绑 download_detour，否则会引用一个不存在的出站
+                ...(options.emitDnsProxyGroup === true ? { download_detour: DNS_PROXY_GROUP } : {})
             };
         }
     });
@@ -491,6 +505,6 @@ export function getRemoteProviderDefinitions(format, ruleLines) {
     return providers;
 }
 
-export function getSingboxDnsRuleSet() {
-    return getRemoteProviderDefinitions('singbox', [{ type: 'rule_set', tag: SINGBOX_CN_RULE_SET }])[SINGBOX_CN_RULE_SET];
+export function getSingboxDnsRuleSet(options = {}) {
+    return getRemoteProviderDefinitions('singbox', [{ type: 'rule_set', tag: SINGBOX_CN_RULE_SET }], options)[SINGBOX_CN_RULE_SET];
 }

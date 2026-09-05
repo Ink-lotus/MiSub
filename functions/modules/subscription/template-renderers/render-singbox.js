@@ -309,7 +309,8 @@ function detectRuleSetFormat(url) {
     return raw.endsWith('.srs') ? 'binary' : 'source';
 }
 
-function buildRuleSets(rules) {
+// dnsThroughProxy 为 false 时不绑 download_detour：DNS 出口组此时不存在
+function buildRuleSets(rules, dnsThroughProxy = true) {
     const remoteRuleSets = rules
         .filter(rule => String(rule.type || '').toLowerCase() === 'rule-set' && rule.source === 'remote')
         .map(rule => ({
@@ -318,7 +319,7 @@ function buildRuleSets(rules) {
             format: detectRuleSetFormat(rule.value),
             url: pinRemoteRuleUrl(rule.value),
             update_interval: '24h',
-            download_detour: DNS_PROXY_GROUP
+            ...(dnsThroughProxy ? { download_detour: DNS_PROXY_GROUP } : {})
         }));
 
     const implicitRuleSets = [];
@@ -339,7 +340,7 @@ function buildRuleSets(rules) {
                         ? pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${value}.srs`)
                         : pinRemoteRuleUrl(`https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${value}.srs`),
                     update_interval: '24h',
-                    download_detour: DNS_PROXY_GROUP
+                    ...(dnsThroughProxy ? { download_detour: DNS_PROXY_GROUP } : {})
                 });
             }
         }
@@ -350,6 +351,7 @@ function buildRuleSets(rules) {
 
 export function renderSingboxFromTemplateModel(model, options = {}) {
     const normalizedModel = normalizeUnifiedTemplateModel(model);
+    const dnsThroughProxy = normalizedModel.settings?.dnsThroughProxy !== false;
     const nodeList = typeof options.nodeList === 'string' ? options.nodeList : '';
     const proxyUrls = nodeList
         .split('\n')
@@ -361,14 +363,14 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
     const proxyOutbounds = proxies.map(buildOutbound).filter(Boolean);
     const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(g => Array.isArray(g.members) && g.members.length > 0));
     const ruleSetObjects = [
-        getSingboxDnsRuleSet(),
-        ...buildRuleSets(normalizedModel.rules).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
+        getSingboxDnsRuleSet({ emitDnsProxyGroup: dnsThroughProxy }),
+        ...buildRuleSets(normalizedModel.rules, dnsThroughProxy).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
     const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
     const defaultOutbound = normalizedModel.groups.find(group => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT';
     const dnsConfig = buildSingboxDnsConfig(normalizedModel.settings?.customDnsOverride, {
         mode: normalizedModel.settings?.dnsMode,
-        proxyGroup: DNS_PROXY_GROUP
+        proxyGroup: dnsThroughProxy ? DNS_PROXY_GROUP : ''
     });
 
     const config = {

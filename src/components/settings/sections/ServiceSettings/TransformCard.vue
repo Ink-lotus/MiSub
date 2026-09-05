@@ -62,7 +62,9 @@ if (!props.settings.subconverter) {
   };
 }
 
-if (!props.settings.dnsConfig) props.settings.dnsConfig = { mode: 'builtin', templateId: '' };
+if (!props.settings.dnsConfig) props.settings.dnsConfig = { mode: 'builtin', templateId: '', throughProxy: true };
+// 存量设置没有 throughProxy 键，补成 true 与默认行为一致
+if (typeof props.settings.dnsConfig.throughProxy !== 'boolean') props.settings.dnsConfig.throughProxy = true;
 
 const isBuiltinMode = computed(() => props.settings.transformConfigMode === 'builtin');
 
@@ -274,6 +276,19 @@ watch(isExternalEngine, (enabled) => {
               </select>
             </div>
             <p class="mt-2 text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsPlaceholder') }}</p>
+
+            <label class="mt-3 flex items-start gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+              <input
+                v-model="settings.dnsConfig.throughProxy"
+                data-dns-through-proxy
+                type="checkbox"
+                class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span class="block text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('settings.dnsThroughProxyLabel') }}</span>
+                <span class="mt-0.5 block text-[10px] leading-relaxed text-gray-400">{{ t('settings.dnsThroughProxyHint') }}</span>
+              </span>
+            </label>
           </div>
         </div>
       </div>
