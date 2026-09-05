@@ -376,3 +376,70 @@ describe('rule-generator render matrix', () => {
             group.proxies.forEach(member => expect(member).not.toContain('(?!')));
     });
 });
+
+/**
+ * 两张非 ACL4SSR 的广告卡片。它们的选型只有一个约束，而这个约束在文件名上看不出来：
+ * render-clash.js:103 的 getRuleProviderBehavior() 对非 IP 类一律返回 `classical`，
+ * 因此来源文件的每一行必须是 `TYPE,value`。
+ *
+ * anti-AD 同时发布 `anti-ad-clash.yaml`（payload 是 `'+.domain'`，domain behavior）、
+ * `anti-ad-domains.txt`（裸域名）与 `anti-ad-surge2.txt`（Surge DOMAIN-SET）——
+ * 名字最像「给 Clash 用」的那个恰恰是唯一不能用的。日后有人「顺手改成官方 clash 格式」
+ * 就会把整张清单变成 0 条生效规则，而界面上完全看不出来。这个用例钉住那件事。
+ */
+describe('广告卡片的来源格式', () => {
+    const AD_CARD_IDS = ['ad-anti-ad', 'ad-awavenue'];
+
+    it('来源指向 classical 可解析的文本清单，不是 domain-behavior 的 yaml', () => {
+        const cards = createDefaultState().cards;
+
+        AD_CARD_IDS.forEach(id => {
+            const card = cards.find(item => item.id === id);
+            expect(card, id).toBeTruthy();
+            expect(card.parentId).toBe('cat-ad');
+            expect(card.sources, id).toHaveLength(1);
+
+            const url = card.sources[0].value;
+            expect(url, id).toMatch(/^https:\/\//);
+            // .yaml / .yml 一律不行：那是 domain behavior 的形态
+            expect(url, id).toMatch(/\.(txt|list)$/);
+            expect(url, id).not.toMatch(/\.ya?ml$/);
+        });
+    });
+
+    it('clash：两张卡片各渲染成一个 classical + text 的 rule-provider', () => {
+        const state = createDefaultState();
+        state.cards.forEach(card => {
+            if (card.id === 'cat-ad' || AD_CARD_IDS.includes(card.id)) card.bucket = 'adblock';
+        });
+
+        const config = yaml.load(renderClashFromIniTemplate(
+            serializeState(state).ini, renderParams('clash')));
+
+        const urls = AD_CARD_IDS.map(id => state.cards.find(card => card.id === id).sources[0].value);
+        const providers = Object.values(config['rule-providers'] || {})
+            .filter(provider => urls.includes(provider.url));
+
+        expect(providers).toHaveLength(AD_CARD_IDS.length);
+        providers.forEach(provider => {
+            expect(provider.behavior).toBe('classical');
+            expect(provider.format).toBe('text');
+        });
+
+        // 规则行挂在 🛑 广告拦截 上，且两张卡片各一条
+        expect(rulesFor(config.rules, GROUP_NAMES.adBlock)
+            .filter(rule => rule.startsWith('RULE-SET,')).length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('两张卡片默认留在待选栏，也不进推荐预设', () => {
+        const cards = createDefaultState().cards;
+        AD_CARD_IDS.forEach(id => {
+            expect(cards.find(card => card.id === id).bucket, id).toBe('off');
+        });
+
+        const recommended = applyRecommendedBuckets(cards);
+        AD_CARD_IDS.forEach(id => {
+            expect(recommended.find(card => card.id === id).bucket, id).toBe('off');
+        });
+    });
+});

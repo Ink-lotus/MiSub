@@ -30,6 +30,25 @@
  *     后两者改用内联规则
  *   - 早期文档记的「Disney / GitHub / GameDownloadCN 不存在」是文件名记错：
  *     实际是 `DisneyPlus.list` / `Github.list` / `GameDownload.list`，均存在
+ *
+ * 两张非 ACL4SSR 的广告卡片（2026-09-05 实测选型）。选文件时**只看内容形态，
+ * 不看文件名**：
+ *   - anti-AD 取 `anti-ad-surge.txt`（101,494 行，100% `DOMAIN-SUFFIX,domain`，
+ *     零通配零例外）。**不能取同仓库的 `anti-ad-clash.yaml`** —— 名字带 clash，
+ *     但 payload 是 `'+.domain'`（domain behavior），而 render-clash.js:103 的
+ *     getRuleProviderBehavior() 对非 IP 类一律返回 `classical`，classical 的每条
+ *     payload 必须是 `TYPE,value`。同理 `anti-ad-domains.txt`（裸域名）与
+ *     `anti-ad-surge2.txt`（Surge DOMAIN-SET 的 `.domain`）也不可用
+ *   - 秋风规则取 `AWAvenue-Ads-Rule-Surge-RULE-SET.list`（902 条
+ *     DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD，25 KB）
+ *
+ * 覆盖关系（按 DOMAIN-SUFFIX 后缀语义实算）：anti-AD 覆盖「🚫 广告基础」域名规则的
+ * 96.5%，另多出 46,581 个 ACL4SSR 五张广告清单都没有的域名；漏掉的 55 条集中在国产
+ * App 内置广告端点，另有 25 条 DOMAIN-KEYWORD 与 19 条 IP-CIDR 它结构上就没有。
+ * 因此两者是**补充关系而非替代**，秋风规则正好补那 55 条的方向。
+ *
+ * 这两个仓库都不在 builtin-rules-provider.js 的 pinRemoteRuleUrl() 钉版本表里，
+ * 因此跟随各自的默认分支 —— 对每日重建的广告表来说这正是想要的。
  */
 
 /**
@@ -168,6 +187,8 @@ export const LOCAL_AREA_NETWORK_SOURCE =
     'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/LocalAreaNetwork.list';
 
 const ACL = 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash';
+const ANTI_AD = 'https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master';
+const AWAVENUE = 'https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters';
 
 /**
  * 大卡片（集合容器）。sources 恒为空，规则全绑在小卡片上。
@@ -233,6 +254,12 @@ const CHILD_DEFS = [
         note: '国内站点广告，误杀概率高于基础清单' },
     { id: 'ad-marketing', parentId: 'cat-ad', name: '📢 营销广告', optional: true,
         sources: [{ kind: 'remote', value: `${ACL}/Ruleset/Marketing.list` }] },
+    { id: 'ad-anti-ad', parentId: 'cat-ad', name: '🛡️ anti-AD 中文广告表', optional: true,
+        sources: [{ kind: 'remote', value: `${ANTI_AD}/anti-ad-surge.txt` }],
+        note: '10 万条纯域名清单，每日重建。与「🚫 广告基础」大面积重叠，可同时开；体积大' },
+    { id: 'ad-awavenue', parentId: 'cat-ad', name: '🍂 秋风广告规则', optional: true,
+        sources: [{ kind: 'remote', value: `${AWAVENUE}/AWAvenue-Ads-Rule-Surge-RULE-SET.list` }],
+        note: '902 条，专打国产 App 内置广告 SDK，体积极小，与 anti-AD 互补' },
 
     // —— AI 服务 ——
     { id: 'ai-openai', parentId: 'cat-ai', name: '🧠 OpenAI',

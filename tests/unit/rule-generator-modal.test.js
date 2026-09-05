@@ -909,7 +909,7 @@ describe('CardPalette', () => {
       '💻 科技服务', '👨‍💻 开发与学术', '🎮 游戏平台', '🏠 国内直连', '🌏 广覆盖代理清单']
       .forEach(name => expect(text).toContain(name));
 
-    // 小卡片默认收起 —— 78 张卡片全展开会把左栏撑爆
+    // 小卡片默认收起 —— 80 张卡片全展开会把左栏撑爆
     expect(text).not.toContain('🧠 OpenAI');
     expect(text).not.toContain('📎 Claude');
   });

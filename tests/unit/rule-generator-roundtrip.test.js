@@ -230,7 +230,7 @@ describe('rule-generator roundtrip', () => {
         const movedHeader = decodeHeader(serializeState(moved).ini);
         expect(movedHeader.cards).toContainEqual({ id: 'telegram', bucket: 'proxy' });
 
-        // 78 张卡片的目录，默认状态的注释头仍在 4 KB 以内（全量写法约 31 KB）
+        // 80 张卡片的目录，默认状态的注释头仍在 4 KB 以内（全量写法约 32 KB）
         const headerLine = serializeState(createDefaultState()).ini.split('\n')[0];
         expect(headerLine.length).toBeLessThan(4096);
     });
