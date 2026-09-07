@@ -8,6 +8,7 @@ import { getUniqueName } from './name-utils.js';
 import { groupNodeLinesByRegion } from './region-groups.js';
 import { POLICY_GROUPS, getBuiltinRules, getRemoteProviderDefinitions, getSingboxDnsRuleSet, DEFAULT_SELECT_GROUP, DEFAULT_RELAY_GROUP, pruneProxyGroups } from './builtin-rules-provider.js';
 import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from './safe-dns.js';
+import { prepareSingboxGroups } from './singbox-routing.js';
 
 function cleanControlChars(str) {
     if (typeof str !== 'string') return str;
@@ -314,7 +315,7 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     }
 
     // 将抽象分组转换为 Sing-Box Outbounds
-    const groupOutbounds = proxyGroups.map(group => {
+    const { outbounds: groupOutbounds, resolveAction } = prepareSingboxGroups(proxyGroups.map(group => {
         let type = 'selector';
         if (group.type === 'url-test') type = 'urltest';
         if (group.type === 'fallback') type = 'urltest'; // Sing-Box 暂时映射为 urltest
@@ -329,7 +330,7 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
                 tolerance: 50 
             } : {})
         };
-    });
+    }));
 
     // 从统一规则库获取分流规则
     const rawRules = getBuiltinRules(levelKey, 'singbox');
@@ -349,8 +350,9 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
         { ip_cidr: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], outbound: 'DIRECT' },
         { domain_suffix: ['localhost'], outbound: 'DIRECT' },
         ...rawRules.map(r => {
-            if (r.type === 'rule_set') return { rule_set: [r.tag], outbound: r.outbound };
-            return r; // 已经是 Sing-Box 格式的普通规则
+            const { outbound, ...match } = r;
+            if (r.type === 'rule_set') return { rule_set: [r.tag], ...resolveAction(outbound) };
+            return { ...match, ...resolveAction(outbound) };
         }),
         { domain_suffix: ['cn'], outbound: 'DIRECT' }
     ];
@@ -375,7 +377,6 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
         ],
         outbounds: [
             { tag: 'DIRECT', type: 'direct' },
-            { tag: 'REJECT', type: 'block' },
             ...outbounds,
             ...groupOutbounds
         ],

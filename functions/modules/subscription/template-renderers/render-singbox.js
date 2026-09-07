@@ -2,6 +2,7 @@ import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel, resolveModelDnsProxyGroup } from '../template-model.js';
 import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from '../safe-dns.js';
 import { getSingboxDnsRuleSet, pinRemoteRuleUrl } from '../builtin-rules-provider.js';
+import { prepareSingboxGroups } from '../singbox-routing.js';
 
 function sanitizeTag(value) {
     return String(value || '').trim() || 'Untitled';
@@ -244,7 +245,7 @@ function buildGroupOutbounds(groups) {
             tag: sanitizeTag(group.name),
             type: mappedType,
             outbounds: ['urltest'].includes(mappedType)
-                ? rawMembers.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()))
+                ? rawMembers.filter(member => !['DIRECT', 'PASS'].includes(String(member).toUpperCase()))
                 : rawMembers
         };
 
@@ -253,7 +254,7 @@ function buildGroupOutbounds(groups) {
             outbound.interval = `${group.options?.interval || 300}s`;
         }
 
-        if (outbound.outbounds.length > 0) {
+        if (mappedType === 'selector' && outbound.outbounds.length > 0) {
             outbound.default = outbound.outbounds[0];
         }
 
@@ -261,46 +262,72 @@ function buildGroupOutbounds(groups) {
     });
 }
 
-function mapRuleToSingbox(rule) {
+function mapRuleToSingbox(rule, resolveAction) {
     const type = String(rule.type || '').toLowerCase();
+    const action = resolveAction(rule.policy);
     if (type === 'rule-set') {
         return {
-            rule_set: sanitizeTag(`${rule.policy}_${rule.value}`),
-            outbound: rule.policy
+            rule_set: [remoteRuleSetUrl(rule.value)],
+            ...action
         };
     }
     if (type === 'geoip') {
         const value = String(rule.value || 'cn').toLowerCase();
         return {
             rule_set: [`geoip-${value}`],
-            outbound: rule.policy
+            ...action
         };
     }
     if (type === 'geosite') {
         const value = String(rule.value || 'cn').toLowerCase();
         return {
             rule_set: [`geosite-${value}`],
-            outbound: rule.policy
-        };
-    }
-    if (type === 'match' || type === 'final') {
-        return {
-            outbound: rule.policy
+            ...action
         };
     }
     if (type === 'domain-suffix') {
         return {
             domain_suffix: [rule.value],
-            outbound: rule.policy
+            ...action
         };
     }
     if (type === 'domain-keyword') {
         return {
             domain_keyword: [rule.value],
-            outbound: rule.policy
+            ...action
         };
     }
+    if (type === 'domain') {
+        return { domain: [rule.value], ...action };
+    }
+    if (type === 'ip-cidr' || type === 'ip-cidr6') {
+        return { ip_cidr: [rule.value], ...action };
+    }
+    if (type === 'process-name') {
+        return { process_name: [rule.value], ...action };
+    }
+    if (type === 'dst-port') {
+        const value = String(rule.value ?? '').trim();
+        const port = Number(value);
+        if (!/^\d+$/.test(value) || !Number.isInteger(port) || port < 0 || port > 65535) {
+            throw new Error('[Singbox] Invalid DST-PORT: expected an integer from 0 to 65535');
+        }
+        return { port: [port], ...action };
+    }
+    console.warn(`[Singbox] Unsupported rule type: ${type}`);
     return null;
+}
+
+function remoteRuleSetUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim());
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+            return pinRemoteRuleUrl(url.toString());
+        }
+    } catch {
+        // A template has no declarations for local or named rule sets.
+    }
+    throw new Error('[Singbox] Invalid RULE-SET: expected an absolute HTTP(S) URL');
 }
 
 function detectRuleSetFormat(url) {
@@ -311,16 +338,20 @@ function detectRuleSetFormat(url) {
 
 // dnsProxyGroup 为空串时不绑 download_detour：此时没有可用的 DNS 出口组
 function buildRuleSets(rules, dnsProxyGroup = '') {
-    const remoteRuleSets = rules
-        .filter(rule => String(rule.type || '').toLowerCase() === 'rule-set' && rule.source === 'remote')
-        .map(rule => ({
-            tag: sanitizeTag(`${rule.policy}_${rule.value}`),
+    const remoteRuleSets = new Map();
+    rules.forEach(rule => {
+        if (String(rule.type || '').toLowerCase() !== 'rule-set') return;
+        const url = remoteRuleSetUrl(rule.value);
+        if (remoteRuleSets.has(url)) return;
+        remoteRuleSets.set(url, {
+            tag: url,
             type: 'remote',
-            format: detectRuleSetFormat(rule.value),
-            url: pinRemoteRuleUrl(rule.value),
+            format: detectRuleSetFormat(url),
+            url,
             update_interval: '24h',
             ...(dnsProxyGroup ? { download_detour: dnsProxyGroup } : {})
-        }));
+        });
+    });
 
     const implicitRuleSets = [];
     const seen = new Set();
@@ -346,7 +377,7 @@ function buildRuleSets(rules, dnsProxyGroup = '') {
         }
     });
 
-    return [...remoteRuleSets, ...implicitRuleSets];
+    return [...remoteRuleSets.values(), ...implicitRuleSets];
 }
 
 export function renderSingboxFromTemplateModel(model, options = {}) {
@@ -362,13 +393,26 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         ? normalizedModel.proxies
         : urlsToClashProxies(proxyUrls);
     const proxyOutbounds = proxies.map(buildOutbound).filter(Boolean);
-    const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(g => Array.isArray(g.members) && g.members.length > 0));
+    const { outbounds: groupOutbounds, resolveAction } = prepareSingboxGroups(
+        buildGroupOutbounds(normalizedModel.groups)
+    );
+    const outboundTags = new Set(['DIRECT', ...proxyOutbounds.map(outbound => outbound.tag), ...groupOutbounds.map(group => group.tag)]);
+    if (dnsProxyGroup && (!outboundTags.has(dnsProxyGroup) || resolveAction(dnsProxyGroup).action === 'reject')) {
+        throw new Error('[Singbox] DNS proxy policy has no usable outbound');
+    }
+    const finalIndex = normalizedModel.rules.findIndex(rule => ['match', 'final'].includes(String(rule.type || '').toLowerCase()));
+    const rules = finalIndex < 0 ? normalizedModel.rules : normalizedModel.rules.slice(0, finalIndex);
     const ruleSetObjects = [
         getSingboxDnsRuleSet({ dnsProxyGroup }),
-        ...buildRuleSets(normalizedModel.rules, dnsProxyGroup).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
+        ...buildRuleSets(rules, dnsProxyGroup).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
-    const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
-    const defaultOutbound = normalizedModel.groups.find(group => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT';
+    const routeRules = rules.map(rule => mapRuleToSingbox(rule, resolveAction)).filter(Boolean);
+    const finalPolicy = finalIndex < 0
+        ? normalizedModel.groups.find(group => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT'
+        : normalizedModel.rules[finalIndex].policy;
+    const finalAction = resolveAction(finalPolicy);
+    if (finalAction.action === 'reject') routeRules.push(finalAction);
+    const defaultOutbound = finalAction.outbound || 'DIRECT';
     const dnsConfig = buildSingboxDnsConfig(normalizedModel.settings?.customDnsOverride, {
         mode: normalizedModel.settings?.dnsMode,
         proxyGroup: dnsProxyGroup
@@ -387,7 +431,6 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         }],
         outbounds: [
             { tag: 'DIRECT', type: 'direct' },
-            { tag: 'REJECT', type: 'block' },
             ...proxyOutbounds,
             ...groupOutbounds
         ],

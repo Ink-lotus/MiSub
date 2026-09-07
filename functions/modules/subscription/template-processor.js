@@ -177,11 +177,11 @@ function expandMagicPlaceholders(model) {
  * 清理策略组中指向空组或不存在节点的无效引用
  * @param {Object} model - 统一模板模型
  */
-function pruneInvalidMembers(model) {
+function pruneInvalidMembers(model, additionalReservedPolicies = []) {
     const validTargetNames = new Set([
         ...model.proxies.map(p => p.name || p.tag),
         ...model.groups.map(g => g.name),
-        'DIRECT', 'REJECT'
+        'DIRECT', 'REJECT', ...additionalReservedPolicies
     ]);
 
     model.groups.forEach(group => {
@@ -338,8 +338,9 @@ function ensureAiPolicy(model) {
  * @param {boolean} [options.cardDerivedGroups=false] - 该模型的策略组是否由可视化
  *        规则生成器的卡片派生。为 true 时 DNS 复用已有入口组而不插专用组，
  *        见 resolveDnsProxyGroup。
+ * @param {string[]} [options.additionalReservedPolicies=[]] - 目标渲染器额外支持的保留策略。
  */
-export function applySmartModelOptimizations(model, { dnsBindable = true, cardDerivedGroups = false } = {}) {
+export function applySmartModelOptimizations(model, { dnsBindable = true, cardDerivedGroups = false, additionalReservedPolicies = [] } = {}) {
     const { ruleLevel } = model.meta || {};
     const normalizedLevel = (ruleLevel || '').toLowerCase();
     const isCustomOrNone = !normalizedLevel || normalizedLevel === 'none';
@@ -420,7 +421,7 @@ export function applySmartModelOptimizations(model, { dnsBindable = true, cardDe
 
     // 7. 最后进行全局修剪与去重 (始终执行，保证输出质量)
     dedupeGroupsByName(model);
-    pruneInvalidMembers(model); 
+    pruneInvalidMembers(model, additionalReservedPolicies);
     pruneEmptyGroups(model);
 
     return model;

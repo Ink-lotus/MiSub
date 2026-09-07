@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import yaml from 'js-yaml';
 import {
@@ -57,6 +58,14 @@ const RENDERERS = [
     { name: 'quanx', render: renderQuanxFromIniTemplate },
     { name: 'egern', render: renderEgernFromIniTemplate }
 ];
+
+const NON_SINGBOX_BASELINES = Object.freeze({
+    clash: '60eaebfd2ad7ade7f9e6bef46470d725d5d06903c879cdbcfdbb103e9f6023b3',
+    surge: 'f599274c5a18b67bbe760b08d8ad2e6fdf40c9147d0ad7296df45f00f8db2776',
+    loon: 'e47b22135ce4fdfe31b9ebd24f52ca4044f23b830cf8c8f1d71d9da9c0b0ba4d',
+    quanx: '0cb52e0372b7e02149685ae7e1aa44fb9044fc2b5cbb8723973e8a5bb84bf523',
+    egern: 'f85e22e4ddb664384df73a155c276336f0267457239a569217bbfdbd9cacbb42'
+});
 
 /**
  * 生成一份压满输出形态的状态。
@@ -341,8 +350,114 @@ describe('rule-generator render matrix', () => {
                 expect(outbound.outbounds.length, outbound.tag).toBeGreaterThan(0);
             });
 
-        // §10 已知偏差：route.final 取 groups[0]，即 🚀 节点选择，而非 🐟 漏网之鱼
-        expect(config.route.final).toBe(GROUP_NAMES.nodeSelect);
+        expect(config.route.final).toBe(GROUP_NAMES.final);
+        const ruleSetTags = new Set(config.route.rule_set.map(ruleSet => ruleSet.tag));
+        expect(ruleSetTags.size).toBe(config.route.rule_set.length);
+        [...config.route.rules, ...config.dns.rules].forEach(rule => {
+            if (rule.outbound) expect(tags.has(rule.outbound), rule.outbound).toBe(true);
+            (rule.rule_set || []).forEach(tag => expect(ruleSetTags.has(tag), tag).toBe(true));
+        });
+        config.route.rules.forEach(rule => {
+            const matchKeys = Object.keys(rule).filter(key => !['outbound', 'action'].includes(key));
+            expect(matchKeys.length, JSON.stringify(rule)).toBeGreaterThan(0);
+        });
+    });
+
+    it('singbox：以 action reject 替代 block 出站，并清理拒绝成员', () => {
+        const { ini } = serializeState(richState());
+        const config = JSON.parse(renderSingboxFromIniTemplate(ini, renderParams('singbox')));
+
+        expect(config.outbounds.some(outbound => outbound.type === 'block')).toBe(false);
+        expect(config.outbounds.some(outbound => outbound.tag === 'REJECT')).toBe(false);
+        config.outbounds.forEach(outbound => {
+            if (Array.isArray(outbound.outbounds)) {
+                expect(outbound.outbounds).not.toContain('REJECT');
+                expect(outbound.outbounds.length, outbound.tag).toBeGreaterThan(0);
+            }
+        });
+
+        expect(config.route.rules.some(rule => rule.action === 'reject')).toBe(true);
+    });
+
+    it.each(RENDERERS)('$name：九种内联规则全部保留在规则段中', ({ name, render }) => {
+        const cases = [
+            ['DOMAIN', 'exact.example.com'],
+            ['DOMAIN-SUFFIX', 'suffix.example.com'],
+            ['DOMAIN-KEYWORD', 'keyword-example'],
+            ['IP-CIDR', '203.0.113.0/24'],
+            ['IP-CIDR6', '2001:db8::/32'],
+            ['GEOIP', 'JP'],
+            ['GEOSITE', 'private'],
+            ['PROCESS-NAME', 'MiSubProbe.exe'],
+            ['DST-PORT', '18080']
+        ];
+        const state = createDefaultState();
+        state.cards.push({
+            id: 'inline-probe', name: 'Inline Probe', parentId: null, origin: 'user',
+            bucket: 'flexible', order: -1,
+            sources: cases.map(([ruleType, value], index) => ({
+                id: `inline-${index}`, kind: 'inline', ruleType, value
+            }))
+        });
+        const { ini } = serializeState(state);
+        const output = render(ini, renderParams(name));
+        if (name === 'clash') {
+            const config = yaml.load(output);
+            cases.forEach(([type, value]) => expect(config.rules).toContain(`${type},${value},Inline Probe`));
+            return;
+        }
+        if (name === 'egern') {
+            const config = yaml.load(output);
+            cases.forEach(([type, value]) => expect(config.rules).toContainEqual({
+                [type.toLowerCase().replace(/-/g, '_')]: { match: value, policy: 'Inline Probe' }
+            }));
+            return;
+        }
+        if (name !== 'singbox') {
+            const lines = output.split('\n').map(line => line.split(',').map(part => part.trim().toLowerCase()).join(','));
+            cases.forEach(([type, value]) => {
+                expect(lines).toContain(`${type},${value},Inline Probe`.toLowerCase());
+            });
+            return;
+        }
+        const config = JSON.parse(output);
+        expect(config.route.rules).toContainEqual({ domain: ['exact.example.com'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ domain_suffix: ['suffix.example.com'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ domain_keyword: ['keyword-example'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ ip_cidr: ['203.0.113.0/24'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ ip_cidr: ['2001:db8::/32'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ rule_set: ['geoip-jp'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ rule_set: ['geosite-private'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ process_name: ['MiSubProbe.exe'], outbound: 'Inline Probe' });
+        expect(config.route.rules).toContainEqual({ port: [18080], outbound: 'Inline Probe' });
+    });
+
+    it('singbox：Rule 段的远程 URL 会声明 rule_set，跨策略共享同一 tag', () => {
+        const url = 'https://example.com/shared.list';
+        const ini = [
+            '[Proxy Group]',
+            'A = select, DIRECT',
+            'B = select, DIRECT',
+            '[Rule]',
+            `RULE-SET,${url},A`,
+            `RULE-SET,${url},B`,
+            'MATCH,B'
+        ].join('\n');
+        const config = JSON.parse(renderSingboxFromIniTemplate(ini, renderParams('singbox')));
+        const definitions = config.route.rule_set.filter(ruleSet => ruleSet.url === url);
+        expect(definitions).toHaveLength(1);
+        const references = config.route.rules.filter(rule => Array.isArray(rule.rule_set)
+            && rule.rule_set.includes(definitions[0].tag));
+        expect(references).toHaveLength(2);
+    });
+
+    it('其余五个渲染器产物保持既有字节基线', () => {
+        const { ini } = serializeState(richState());
+        RENDERERS.filter(({ name }) => name !== 'singbox').forEach(({ name, render }) => {
+            const output = render(ini, renderParams(name));
+            const digest = crypto.createHash('sha256').update(output).digest('hex');
+            expect(digest, name).toBe(NON_SINGBOX_BASELINES[name]);
+        });
     });
 
     it('egern：输出合法 YAML 且含策略组', () => {

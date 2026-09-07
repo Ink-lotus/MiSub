@@ -56,7 +56,10 @@ export function renderSingboxFromIniTemplate(templateText, options = {}) {
         ...options,
         proxies
     });
-    model = applySmartModelOptimizations(model, { cardDerivedGroups: options.cardDerivedGroups === true });
+    model = applySmartModelOptimizations(model, {
+        cardDerivedGroups: options.cardDerivedGroups === true,
+        additionalReservedPolicies: ['REJECT-DROP']
+    });
     return renderSingboxFromTemplateModel(model, options);
 }
 

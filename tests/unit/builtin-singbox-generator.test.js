@@ -4,6 +4,19 @@ import { generateBuiltinSingboxConfig } from '../../functions/modules/subscripti
 const SS2022_V2RAY_PLUGIN_NODE = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
 
 describe('Built-in Sing-box generator', () => {
+    it.each(['std', 'full', 'relay'])('should reject ADS instead of using the removed block outbound (%s)', ruleLevel => {
+        const parsed = JSON.parse(generateBuiltinSingboxConfig('trojan://password@1.2.3.4:443#TestNode', { ruleLevel }));
+
+        expect(parsed.outbounds.some(outbound => outbound.type === 'block')).toBe(false);
+        expect(parsed.outbounds.some(outbound => outbound.tag === 'REJECT')).toBe(false);
+        parsed.outbounds
+            .filter(outbound => Array.isArray(outbound.outbounds))
+            .forEach(outbound => expect(outbound.outbounds).not.toContain('REJECT'));
+        expect(parsed.route.rules.find(rule => rule.rule_set?.includes('ADS'))).toEqual({
+            rule_set: ['ADS'], action: 'reject'
+        });
+    });
+
     it('should generate a JSON config with outbounds', () => {
         const result = generateBuiltinSingboxConfig([
             'trojan://password@1.2.3.4:443#TestNode',
