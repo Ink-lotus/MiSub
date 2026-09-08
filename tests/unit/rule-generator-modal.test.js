@@ -52,6 +52,18 @@ describe('RuleGeneratorModal', () => {
     setActivePinia(createPinia());
   });
 
+  it('shows an unsupported remote source warning without disabling apply', async () => {
+    const wrapper = mountModal();
+    wrapper.vm.submitRuleset({ mode: 'child', name: 'Remote fixture', rows: [{ kind: 'remote', value: 'https://example.com/custom.list' }] });
+    const child = wrapper.vm.state.cards.find(card => card.name === 'Remote fixture');
+    wrapper.vm.moveCard({ cardId: child.id, bucket: 'proxy' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll('li').some(item => item.text().includes('sing-box'))).toBe(true);
+    expect(wrapper.get('[data-test="confirm"]').attributes('disabled')).toBeUndefined();
+    await wrapper.get('[data-test="confirm"]').trigger('click');
+    expect(wrapper.emitted('apply')).toHaveLength(1);
+  });
+
   it('空内容时用默认状态挂载，渲染六段与预览', () => {
     const text = mountModal().text();
 

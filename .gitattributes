@@ -17,3 +17,6 @@
 *.gif binary
 *.ico binary
 *.svg binary
+
+public/rulesets/singbox/**/*.json linguist-generated=true
+shared/singbox-ruleset-manifest.js linguist-generated=true

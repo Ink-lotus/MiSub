@@ -161,6 +161,11 @@ export async function onRequest(context) {
                 return applyNoStoreToHtmlResponse(await fetchStaticAsset(request, env, next));
             }
 
+            // These public assets must remain reachable even when a legacy token/login path is "rulesets".
+            if (/^\/rulesets\/singbox\/(?:README\.md|[a-f0-9]{40}\/(?:Ruleset\/)?[\w.-]+\.json)$/.test(url.pathname)) {
+                return fetchStaticAsset(request, env, next);
+            }
+
             // 动态识别订阅路由：仅保留 /sub/ 显式前缀，以及用户自定义 mytoken/profileToken 短链
             const isExplicitSubRoute = url.pathname.startsWith('/sub/');
             

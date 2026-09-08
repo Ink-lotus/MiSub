@@ -1,82 +1,56 @@
-# sing-box 渲染器与其余五个的能力对齐（可视化规则编辑）
+# 可视化编辑器的远程规则集在 sing-box 下可用
 
-**状态**：待执行，**代码尚未编写**。调查与实测已完成（2026-09-05），结论与复现方法见下。
+**状态**：2026-09-08 已在 `test` 分支完成转换、映射、渲染、提示与静态路由修复，并按授权生成 68 份规则集。全量单测、生产构建、sing-box 1.12.0 / 1.13.0 对打包产物的真实下载与规则命中，以及桌面/手机浏览器验收均通过。以下历史调查以本节的复核修订及验收结果为准。
+
+## 2026-09-07 实施复核
+
+- 前置修复已在 `4f35533` 落地，当前最低客户端版本是 **sing-box >=1.12**。前置四组定向测试共 111 项通过；本轮补验 1.12.0 与 1.13.0，详见下方执行结果。
+- 本次在已有 `test` 分支就地实施推荐方案 A，不新建分支。生成器采用**离线 snapshot JSON 输入**，保存固定 ACL4SSR revision 的 GitHub API base64 原文及 Git blob SHA；普通 `npm run build` 不联网、不重建规则快照。生成物及来源清单一起纳入版本管理。
+- URL tag 沿用当前 `remoteRuleSetUrl()` 的规范化、钉版本结果；转换只改变下载 URL 和 format，跨策略复用及引用一致性必须保留。
+- 映射必须限定到生成清单覆盖的路径，不能把任意 ACL4SSR `.list` 改成本站不存在的 JSON。通过 `new URL()` 比较精确主机、仓库及 pathname；扩展名检测不受 query/hash 影响，不使用字符串 `startsWith(origin)` 判断同源。
+- 静态路径包含源 revision；来源清单记录源文件与输出文件 SHA-256、转换/丢弃数量。测试同时校验 revision、文件哈希、目录覆盖率及实际输出，阻止换 revision 后继续发布旧快照。后续更新须保留仍被已订阅配置引用的旧 revision 目录，清理需单独决定。
+- `.list` 中同一匹配字段合并进数组，不同字段保留为独立 headless rule，保持 OR 语义，避免域名与进程/端口组合成 AND。只忽略注释、空行和 `no-resolve`；已知无法表示的规则明确报告，未知类型、非法值或仅剩空规则的文件直接失败，禁止发布部分成功的快照。所有输入验证完成后才写生成物。
+- 用户自填来源不能一概判定失效：原生 sing-box `.json` / `.srs`、可映射的内置来源仍可用；仅对生效卡片中未识别的远程格式提示无法确认兼容，`.list` / `.txt` 提示不兼容且可能导致启动失败。提示以实际来源为准，覆盖修改过来源的内置卡片，排除 off/trash。
+- 缺失或非法 `managedConfigUrl` 保留现有透传行为；这只是兼容直接调用的旧行为，不能列为 sing-box 可用的验收结果。从 model.settings 传递的合法 URL 也应被支持。
+- 同站静态资源须验证未登录下载、JSON 内容类型及打包后文件可达，不能仅验证 URL 字符串。五个其它渲染器沿用现有 SHA-256 基线，并补有 managed URL 的基线。
+- 文档原来的“全部自填 URL 不生效”“只用内置目录即六平台可用”过于绝对；实际能力须按格式、丢弃报告与真客户端验收分别报告。
+- 工具实测：`tinyfish fetch content get` 的 markdown/html 输出会折叠 `.list` 原文换行，不能作为可重现的转换输入。改为 `tinyfish` 读取 GitHub contents API 的 base64；超过 1 MB 的文件通过 git blob API 获取。校验字节数和 Git blob SHA 后才能转换，无需规则下载的工具例外。官方客户端下载的工具例外已获本次会话授权。
+- 2026-09-08 真实输入试转换：68 份清单共转换 97,400 条，JSON 合计 2,947,292 B。同字段合并前为 7,318,421 B。`ChinaMedia.list` / `ProxyMedia.list` / `Ruleset/Amazon.list` 各丢弃 1 条 URL-REGEX，`Download.list` 丢弃 7 条（保留 15 条）；这 4 份来源必须给出部分覆盖提示。
+- 生成物沿用 ACL4SSR 的 CC BY-SA 4.0，附来源、revision、许可链接与转换说明；不混同于应用代码许可。
+- 独立审阅补充：合法历史配置允许 `mytoken` / `profileToken` / `customLoginPath` 为 `rulesets`，会抢占本轮静态 URL。入口只对版本化规则 JSON 与许可 README 优先走静态处理，保留其它 token/登录路径；6 项静态路由回归通过。
+- 转换器额外拒绝 JavaScript 原型属性名、带 zone 的 IPv6 以及前导零 CIDR prefix，避免输出 sing-box 无法解析的 JSON。当前转换器 30 项测试通过。
+
+### 执行与验收结果
+
+- 批量生成与官方客户端下载均已获得明确授权。已执行 `node scripts/build-singbox-rulesets.mjs --source-file "$env:TEMP/misub-singbox-433381eb-snapshot.json"`，生成 manifest 与 68 个 JSON；`--check` 校验全部 69 份文件可重现。`.gitattributes` 已将 JSON 和 manifest 标记为生成物。
+- `npx vitest run` 全量 133 个文件、1,066 项测试通过，包含全部目录来源/产物哈希、映射、静态路由、提示可见且不阻止应用，以及其余五个渲染器的既有字节基线和 managed URL 字节基线。
+- 官方 Windows amd64 1.12.0 / 1.13.0 下载至临时目录，分别校验 SHA-256 `49a5b90b390974a87b4660308446dfd9630f60ac655f76383abbd5f0994b09b3` / `c080ac4f53f1e92fe44a5440958bfe6ff6a3db75347fe6b31afc6d6517a8d76e` 后解压。`Invoke-WebRequest` 受 Windows SSPI 凭据错误影响，使用 Node `fetch` 完成同一项已授权的官方下载。未安装、未改 PATH、未启动 TUN。
+- 两个版本分别成功执行全部 68 份实际 JSON 的 `rule-set compile`。新增 `scripts/smoke-singbox-rulesets.mjs --client <sing-box.exe> [--client <另一版本>]`：渲染全部来源的配置，仅将入站、无关 DNS 来源和接口探测限制为本机验收设置；两个版本均通过 `check`、HTTP 下载全部 68 份生成物、直连控制请求和 Claude 规则集的精确拒绝命中。
+- 实测原始 `.list` 以 `format: source` 加载时，两个版本均非零退出并报 `FATAL ... invalid character 'D' looking for beginning of value: row 1, column 1`，确认是启动失败。验收脚本断言来源 tag 和具体解析错误，保留临时配置/日志并关闭自己的客户端与 HTTP 服务；退出等待有上限，并处理 SIGINT / SIGTERM。
+- 用户授权按单个子代理串行重试后，自动审批通过，`npm run build` 成功：Vite 7.3.3，326 个模块，9.10 秒，退出码 0。此前的 Windows 子进程 `EPERM` 未通过修改依赖、构建配置或 CI 处理。
+- `dist` 当前 revision 的 68 份 JSON 路径与 manifest 精确一致，全部 SHA-256 匹配；Vite preview 的全部 68 条实际 HTTP 路径均返回 `200` / `application/json` 且响应字节哈希匹配，不需要登录。入口回归额外覆盖历史 `rulesets` token/登录路径冲突。两个版本再以 `--public-dir dist` 运行原生验收，全部下载、启动、直连控制、Claude 命中及非法清单 FATAL 断言通过。
+- Playwright 使用本机 Edge 对打包页面在 `1440x1000` 与 `390x844` 视口验收，API 响应使用浏览器内测试数据，未写真实设置。三类 sing-box 提示正确、原生 JSON/SRS 无误报、警告无横向溢出，应用模板成功，页面 JavaScript 错误为 0。已复核关闭动画后的截图；原生格式来源仍需满足编辑器既有的 INI 字符校验。
+- 本地静态预览保留在 `http://127.0.0.1:4173/`，未接后端；测试浏览器与原生客户端均已关闭。Surge / Loon / Quantumult X / Egern 无本机客户端，未声称实机验证。
+- 实施相关批量操作与下载没有待回复授权。本轮按用户要求提交到本地 `test`，不进行推送或合并。
+
+本节只修订本次实施范围；历史候选和调查数据保留供核对。批量新增生成物、工具例外及任何 Git 提交/远程操作遵守会话授权门禁。
 
 | 项 | 值 |
 |---|---|
-| 目标 | 本仓库 `main` |
-| 建议分支名 | `fix/singbox-visual-rule-parity` |
-| 改动面 | `render-singbox.js`、新增 `shared/` 一张映射表、测试；约 150–200 行 |
-| 风险 | 中——三件独立修复，其中一件引入新的第三方规则源（需先确认） |
-| 前置决定 | 见 §4.2「要你拍板的两点」，未定不要开工 |
+| 目标 | 本仓库 `main`。**不提上游** —— 带本地生成物与构建期步骤，是本仓库特有能力 |
+| 建议分支名 | `feat/singbox-visual-ruleset-hosting` |
+| 前置 | `2026-09-05-pr-singbox-renderer-defects.md` **必须先落地**，否则本轮改完也验不出来 |
+| 改动面 | `render-singbox.js`、新增构建期转换脚本 + 生成物、`shared/` 一张映射表、测试 |
+| 风险 | 中高——要选一个规则集托管来源，三个候选各有实质代价 |
+| 前置决定 | 见 §三，**未定不要开工** |
 
-**一句话**：可视化规则编辑器的产物在 sing-box 下部分静默失效，而其余五个渲染器（clash /
-surge / loon / quanx / egern）都是好的。三个独立 bug，共同成因是**模板渲染路径比内置模板
-路径不完整**。
+**一句话**：可视化编辑器里的**远程规则集**在 sing-box 下全部不生效。这不是少写了转换代码 ——
+配置里只有一个 URL，内容由客户端自己去下载，而 sing-box 读不了 ACL4SSR 的 `.list` 文本清单。
+要修就得有人以 sing-box 格式托管同一份内容，所以这一轮的核心是**选托管方案**，不是写代码。
 
 ---
 
-## 一、问题
-
-### 1.1 九种内联规则类型，sing-box 丢五种（实测）
-
-界面上「🧱 自定义规则集 → 内联规则」的类型下拉提供 9 种
-（`GeneratorTopBar.vue` 的 `INLINE_TYPES`）。把 9 种各放一条进同一张卡片，
-跑六个渲染器，逐条在产物里查：
-
-| 类型 | clash | surge | loon | quanx | egern | **sing-box** |
-|---|---|---|---|---|---|---|
-| DOMAIN-SUFFIX | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| DOMAIN-KEYWORD | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| GEOIP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| GEOSITE | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **DOMAIN** | ✓ | ✓ | ✓ | ✓ | ✓ | **丢** |
-| **IP-CIDR** | ✓ | ✓ | ✓ | ✓ | ✓ | **丢** |
-| **IP-CIDR6** | ✓ | ✓ | ✓ | ✓ | ✓ | **丢** |
-| **PROCESS-NAME** | ✓ | ✓ | ✓ | ✓ | ✓ | **丢** |
-| **DST-PORT** | ✓ | ✓ | ✓ | ✓ | ✓ | **丢** |
-
-成因在 `render-singbox.js:264-304` 的 `mapRuleToSingbox()`：它只认
-`rule-set` / `geoip` / `geosite` / `match` / `domain-suffix` / `domain-keyword`，
-其余一律 `return null`，随后被第 370 行的 `.filter(Boolean)` 吃掉。
-
-**这是数据丢失级别的问题**：用户在界面上填了 `IP-CIDR,10.0.0.0/8`，sing-box 产物里
-没有任何痕迹，也没有任何提示。三个 bug 里这一件最要紧。
-
-对照：`builtin-rules-provider.js:433-436` 的 `translateRuleLine()` **正确处理了**
-`DOMAIN` 与 `IP-CIDR`。同一个仓库里，内置模板路径比模板渲染路径完整。
-
-#### 复现
-
-```js
-// node --input-type=module，路径按需改
-import { renderSingboxFromIniTemplate } from './functions/modules/subscription/template-pipeline.js';
-import { createDefaultState } from './src/utils/rule-generator/catalog.js';
-import { serializeState } from './src/utils/rule-generator/serialize.js';
-
-const state = createDefaultState();
-state.cards.push({
-  id: 'u1', name: 'PROBE', parentId: null, origin: 'user', bucket: 'proxy', order: -1,
-  sources: [
-    { id: 's1', kind: 'inline', ruleType: 'DOMAIN',       value: 'exact.example.com' },
-    { id: 's2', kind: 'inline', ruleType: 'IP-CIDR',      value: '203.0.113.0/24' },
-    { id: 's3', kind: 'inline', ruleType: 'PROCESS-NAME', value: 'Telegram.exe' },
-    { id: 's4', kind: 'inline', ruleType: 'DST-PORT',     value: '8080' }
-  ]
-});
-const cfg = JSON.parse(renderSingboxFromIniTemplate(serializeState(state).ini, {
-  nodeList: 'trojan://p@1.1.1.1:443#HK01', fileName: 'M', targetFormat: 'singbox',
-  ruleLevel: 'none', interval: 86400, managedConfigUrl: '',
-  skipCertVerify: false, enableUdp: true, isMeta: true
-}));
-// 四条全都查不到
-console.log(JSON.stringify(cfg).includes('203.0.113.0/24'));  // false
-```
-
-**注意 GEOIP 的验证要大小写不敏感**：`GEOIP,JP` 会变成 `rule_set: ['geoip-jp']`，
-按字面 `JP` 去查会得到假阴性。第一次实测就踩了这个，误报 GEOIP 也丢了。
-
-### 1.2 远程规则集的 `format` 猜错
+## 一、问题：`format: "source"` 指向 `.list`
 
 `render-singbox.js:306` 的 `detectRuleSetFormat()`：
 
@@ -84,278 +58,301 @@ console.log(JSON.stringify(cfg).includes('203.0.113.0/24'));  // false
 return raw.endsWith('.srs') ? 'binary' : 'source';
 ```
 
-sing-box 文档明确：`format` 必填，只能是 `source` 或 `binary`，仅当 URL 扩展名是
-`json` / `srs` 时可省。而 `source` 指的是 sing-box 自己那套 JSON 结构
-（`{"version":N,"rules":[…]}`），**不是** Surge 风格的 `TYPE,value` 文本清单。
+sing-box 文档明确：`format` 必填，只能是 `source` 或 `binary`，仅当 URL 扩展名是 `json` / `srs`
+时可省。而 `source` 指的是 sing-box 自己那套 JSON 结构（`{"version":N,"rules":[…]}`），**不是**
+Surge 风格的 `TYPE,value` 文本清单。
 
-我们卡片里的来源全是 `.list` / `.txt` 文本清单，于是每一条都被声明成
-`format: "source"` 并指向一个非 JSON 文件。实测产物（默认状态把广告卡片放进桶）：
-
-```json
-{ "tag": "🛑 广告拦截_https://.../Clash/BanAD.list",
-  "type": "remote", "format": "source",
-  "url": "https://.../Clash/BanAD.list", "update_interval": "24h" }
-```
-
-命中范围：内置目录的 68 个 ACL4SSR 文件 + 局域网直连 + 两张新增的广告卡片
-（anti-AD / 秋风）+ 用户自填的一切远程 URL。
-
-对照 `render-clash.js` 为什么没事：它能**从 ACL4SSR 的路径推导**出 Provider yaml
-（`toClashRuleProviderUrl()`，`:66`），并对 `.list` / `.txt` 正确加上
-`format: 'text'` + `behavior: 'classical'`。sing-box 没有可推导的等价物。
-
-### 1.3 重复的 `rule_set` tag
-
-`buildRuleSets()`（`render-singbox.js:313`）用 `.map` 直接展开，**没有去重**。
-两张不同卡片挂同一个 URL、又落在同一个桶里时，产出两条 tag 完全相同的 `rule_set`：
+卡片里的来源全是 `.list` / `.txt`，于是每一条都被声明成 `format: "source"` 并指向一个非 JSON
+文件。实测（默认状态过 `applyRecommendedBuckets` 铺开，贴近真实用法）：
 
 ```
-rule_set 条数: 4 | 重复 tag: ["🌍 国际代理_https://.../Ruleset/Telegram.list"]
+rule_set 声明 37 条 | format 分布 {"binary":2,"source":35}
+声明 source 但 URL 非 .json/.srs 的: 35 条
+例: { "tag": "DIRECT_https://.../Clash/LocalAreaNetwork.list",
+      "type": "remote", "format": "source",
+      "url": "https://.../Clash/LocalAreaNetwork.list", "update_interval": "24h" }
 ```
 
-`render-clash.js:130` 那边有 `ruleProviderMap` 挡着，所以只有 sing-box 有这个毛病。
-sing-box 的 rule_set 按 tag 索引，重复至少是白下载两遍，**很可能直接拒绝整份配置**
-—— 后半句我没有实机验证，执行时值得先在真客户端上确认一次。
+**这大概率不是「静默失效」而是启动失败**：同类报错在 v2rayN #7682 里是
+`FATAL[0000] create service: initialize router: parse rule-set[0]: invalid sing-box rule-set file`。
+本轮**没有实机确认**远程规则集解析失败时 sing-box 是 FATAL 还是降级重试，执行时先验这一件，
+它决定 §七 验收要不要多一层。
 
-触发路径不算罕见：`dedupeSourcesWithinCard()` 只在单张卡片内去重，跨卡片同 URL 由
-`findSourceConflicts()` 提示但**不阻止**，用户点「保留我的」以外的选择就会留下两份。
+命中范围：内置目录的 68 个 ACL4SSR 文件 + 局域网直连 + 两张广告卡片 + 用户自填的一切远程 URL。
 
 ---
 
-## 二、成因：两条流水线的抽象层级不同
+## 二、为什么只有 sing-box 卡住
 
-| | 内置模板生成器 | 模板渲染器 |
-|---|---|---|
-| 文件 | `builtin-*-generator.js` + `builtin-rules-provider.js` | `template-renderers/render-*.js` + `template-pipeline.js` |
-| 何时走 | 用户选内置模板（ACL4SSR lite/std/full/relay） | 模板是 INI —— 自定义模板、**可视化生成器产物**、远程 INI |
-| 规则来源 | `RULE_SETS[level]` 里的逻辑键 → `translateRuleLine(line, format)` → `REMOTE_SOURCES[key][format]` | INI 正文的 `ruleset=` 行 → `ini-template-parser.js` → 统一 model |
-| 每格式各自的 URL | **有**（`REMOTE_SOURCES`，`builtin-rules-provider.js:294`） | **没有** |
-| 入口签名 | `generateBuiltinSingboxConfig(nodeList, options)` | `renderSingboxFromIniTemplate(templateText, options)` |
+这一节是整份文档的前提，别跳。卡片里有两种来源，性质完全不同：
 
-可视化编辑走右边那套（`processor-service.js:281`），治 sing-box 的机制在左边那套。
+**内联规则**（`ruleset=🎮 我的游戏,[]IP-CIDR,203.0.113.0/24`）—— 值就写在配置里，六种格式全靠
+MiSub 自己翻译。这是纯代码问题，归前一轮（`pr-singbox-renderer-defects.md` §1.4）。
 
-**为什么右边套不了左边整体**：内置生成器是**固定预设生成器，不是转换器**。跟规则有关的
-入参只有一个字符串 `ruleLevel: 'base'|'std'|'full'|'relay'`；规则来自硬编码的
-`RULE_SETS[level]`，策略组来自 `POLICY_GROUPS[level]`（`builtin-rules-provider.js:168`）
-—— 组名全是写死的常量。**没有任何入口能传进任意规则或任意策略组**，而可视化编辑器产出的
-恰好就是这两样（灵活桶里每张顶层卡片一个同名组、6–7 个地区组、桶顺序即优先级）。
+**远程规则集**（`ruleset=🛑 广告拦截,https://.../BanAD.list`）—— 配置里只有一个 URL，内容由客户端
+自己去下载，**MiSub 从头到尾没碰过内容**。
 
-**为什么右边套不了左边的表**：抽象在 INI 那一步丢了。左边的输入是 `RULE-SET,ADS,…`，
-`ADS` 是逻辑键可以查表；右边的输入是 `ruleset=🛑 广告拦截,https://…/BanAD.list`，
-只有一个字面 URL。而 INI 写 URL 不是随意决定 —— `ruleset=` 是 subconverter 语法，
-本身没有「按客户端给不同 URL」的概念，保持兼容才能让用户在高级模式手改、或粘到别处用。
-
-**可复用的只有左边那套里的两小块**，都是纯数据/纯函数，`import` 就能用：
-
-- `REMOTE_SOURCES`（`:294`）—— 约 50 行「逻辑规则集 → 每格式 URL」
-- `getRemoteProviderDefinitions()` 第 501 行 `format: endsWith('.srs') ? 'binary' : 'source'`
-
-所以方向是**把表搬过去，不是把渲染搬过来**。
-
----
-
-## 三、范围
-
-**只修 sing-box 渲染器的这三件事。** 其余五个渲染器一行不动，产物必须逐字节不变。
-
-### 明确不做
-
-| 不做 | 原因 |
-|---|---|
-| 让服务端读 `; misub-visual-state-v1:` 注释头（下称「接法 C」） | 那是更彻底的方案，也是补齐用户自填 URL 的唯一出路，但它要把 `catalog.js` 移进 `shared/`、改渲染入口的数据流。单独一轮做，见 §七 |
-| MiSub 自建规则集转换端点 | 新路由 + SSRF 防护 + 缓存 + 流式转换，独立项目，见 §七 |
-| 支持 Clash 的 `behavior: domain`（让 anti-AD 用官方 `.yaml`/`.mrs`） | 与本次无关，另有取舍 |
-| 动 `builtin-*-generator.js` | 内置模板路径本来是好的，碰它只会引入回归 |
-| 改 INI 的 `ruleset=` 语法 | 会破坏 subconverter 兼容与高级模式手改 |
-
----
-
-## 四、实现方案
-
-### 4.1 补全 `mapRuleToSingbox()`（bug 1.1，先做这个）
-
-在 `render-singbox.js:264` 的 `mapRuleToSingbox()` 里补五个分支，映射到 sing-box 原生
-route rule 字段。前两个可以直接照抄 `builtin-rules-provider.js:433-436`：
-
-| 生成器类型 | sing-box 字段 |
-|---|---|
-| `DOMAIN` | `domain: [value]` |
-| `IP-CIDR` | `ip_cidr: [value]` |
-| `IP-CIDR6` | `ip_cidr: [value]`（sing-box 的 `ip_cidr` 同时吃 v4/v6，不分字段） |
-| `PROCESS-NAME` | `process_name: [value]` |
-| `DST-PORT` | `port: [Number(value)]`（**注意是数字数组**，字符串会被拒） |
-
-`no-resolve` 修饰符：sing-box 没有对应字段（`rule-modifiers.js` 的白名单里本来也不含
-singbox），照旧丢弃即可，不必特殊处理。
-
-**兜底分支要改掉**。现在末尾是 `return null`，任何将来新增的类型都会静默消失。改成保留
-`return null` 但在返回前记一条 `console.warn`，让下次漏类型时至少在日志里看得见。
-
-### 4.2 远程规则集的 URL 映射（bug 1.2）
-
-新建 `shared/singbox-ruleset-map.js`（放 `shared/` 是为了将来接法 C 换键时不用搬家；
-`shared/` 已被 `functions/` 与 `src/` 双向引用，见 `shared/safe-dns.js`）：
-
-```js
-// 键 = 卡片里写的来源 URL（去掉 revision 后的规范形式）
-// 值 = sing-box 用的规则集 URL（.srs → binary，.json → source）
-export function toSingboxRuleSetUrl(sourceUrl) { /* … */ }
-```
-
-`buildRuleSets()` 里只改两个字段，**tag 保持从原始 `rule.value` 派生**：
-
-```js
-const singboxUrl = toSingboxRuleSetUrl(rule.value) || rule.value;
-return {
-  tag: sanitizeTag(`${rule.policy}_${rule.value}`),   // ← 不动
-  type: 'remote',
-  format: singboxUrl.endsWith('.srs') ? 'binary' : 'source',
-  url: pinRemoteRuleUrl(singboxUrl),
-  …
-};
-```
-
-tag 不动是关键：`mapRuleToSingbox()` 与 `buildRuleSets()` 都从原始 `rule.value` 派生
-tag，只改 `url`/`format` 两边就照旧对得上，不用同步改两处。
-
-#### 内容来源：两个候选（已核实）
-
-| | `KaringX/karing-ruleset` | `SagerNet/sing-geosite` |
-|---|---|---|
-| 内容 | **同一个 ACL4SSR 文件**编译成 `.srs`，语义一致 | geosite 分类，是**近似物**而非同一份规则 |
-| 覆盖 | `ACL4SSR/` 目录扁平、按基名命名，171 个 `.srs`。与我们目录实际用到的 68 个 ACL4SSR 文件做差集：**一个不缺** | 分类广但对不上名，`BanAD.list` 只能换成 `geosite-category-ads-all` |
-| 供应链 | **多一个第三方** | **零新依赖**——已在 `PINNED_RULE_REVISIONS`，已被 sing-box 渲染器用于 geoip/geosite |
-| 格式 | 171 个 `.srs` + 25 个 `.json`（`.json` 覆盖不全我们用到的 68 个） | `.srs` |
-
-**已决定用 karing-ruleset**，理由是可视化编辑器里用户是逐张卡片挑的，静默换成别的清单违背
-他挑的意思；内置模板路径接受这个代价（`REMOTE_SOURCES.ADS` 就是 `geosite-category-ads-all`）
-是因为那里本来就只承诺「广告拦截」这个粒度。
-
-两张非 ACL4SSR 的广告卡片各有**官方** sing-box 产物，直接写死在表里，不经第三方：
-
-| 卡片 | sing-box 用 |
-|---|---|
-| `ad-anti-ad` | `privacy-protection-tools/anti-AD/master/anti-ad-sing-box.srs` |
-| `ad-awavenue` | `TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Singbox.json` |
-
-#### 要你拍板的两点（未定不要开工）
-
-1. **多信一个第三方。** karing-ruleset 编译的是别人家的规则内容，理论上能往用户路由里塞
-   任何东西。现有代码已这样依赖 ACL4SSR / blackmatrix7（都钉了 revision），加它是同性质的
-   决定。**务必把它加进 `builtin-rules-provider.js:278` 的 `PINNED_RULE_REVISIONS`**，把风险
-   压成「某个时间点的快照」。
-2. **`.srs` 的客户端版本地板。** `.srs` 是版本化二进制（v1=sing-box 1.8 / v2=1.10 /
-   v3=1.11…），用哪版编译就要求客户端不低于它。要么统一 `.srs` 接受地板，要么「有 `.json`
-   用 `.json`、其余退 `.srs`」混着来（代码稍多，兼容面更宽）。
-
-### 4.3 `rule_set` 去重（bug 1.3）
-
-照 `render-clash.js:130` 的 `ruleProviderMap` 做法，在 `buildRuleSets()` 里用一个 `Set`
-按 tag 去重。注意 tag 里含 policy，所以「同 URL 不同桶」仍然是两条独立 rule_set，
-那是对的，不能一起去掉。
-
----
-
-## 五、测试
-
-`tests/unit/rule-generator-render-matrix.test.js` 已有 23 个用例覆盖六个渲染器的结构，
-新增用例挂在那里。三件修复各自要有钉子：
-
-| 用例 | 钉住什么 |
-|---|---|
-| 九种内联类型在六个渲染器下全部存活 | §1.1。**直接把实测矩阵变成断言**——这是最有价值的一个，它同时防住五个渲染器的回归 |
-| `DST-PORT` 在 sing-box 下是数字数组不是字符串 | 容易写错且客户端才报错 |
-| 远程 `.list` 卡片在 sing-box 下渲染成 `.srs` + `format: binary` | §1.2 |
-| 两张卡片同 URL 同桶时 `rule_set` tag 不重复；同 URL 不同桶时仍是两条 | §1.3 两个方向 |
-| 其余五个渲染器的产物在改动前后逐字节相同 | 范围约束。可以先跑一次存基线字符串 |
-| 表里没有的 URL（用户自填）走原样透传，不抛错 | 降级路径 |
-
-GEOIP 的断言记得大小写不敏感，理由见 §1.1。
-
----
-
-## 六、验收：修完之后成立到什么程度
-
-分三层写，因为确定性不一样。**不要把这三层混着说成「六平台通用」。**
-
-**层 1 — 配置形状正确。** 修完即成立，单测可验证。
-
-**层 2 — 客户端能否消费远程清单。** clash 已实测（`behavior: classical` + `format: text`）。
-其余四个各有对应入口，消费的都是 Surge 风格 `TYPE,value` 清单，而 ACL4SSR 的 `.list`
-正是那个格式，所以把握较大 —— 但**没有实机验证过**：
+clash / surge / loon / quanx / egern 五个都能直接吃 Surge 风格的 `TYPE,value` 文本清单，而
+ACL4SSR 的 `.list` 正好就是那个格式，所以它们天生就通：
 
 | 格式 | 入口 | 位置 |
 |---|---|---|
+| clash | `rule-providers` + `format: text` + `behavior: classical` | `render-clash.js:153-161` |
 | surge | `RULE-SET,<url>,<policy>` | `render-surge.js:297` |
 | loon | `[Remote Rule]` 段 `<url>, policy=…, enabled=true` | `render-loon.js:294` |
 | quanx | `filter_remote, <url>, tag=…, force-policy=…` | `render-quanx.js:206` |
 | egern | `rule_set: { match: <url>, policy }` | `render-egern.js:279` |
 
-**执行时请在真客户端上各过一遍**，尤其 quanx 与 egern。PR/提交信息里不要写「六平台验证通过」
-除非真跑过。
+clash 还多一手：能**从 ACL4SSR 的路径推导**出 Provider yaml（`toClashRuleProviderUrl()`，`:66`），
+并对 `.list` / `.txt` 正确加上 `format: 'text'` + `behavior: 'classical'`。
 
-**层 3 — 修完之后的可用范围。**
+sing-box 只认自己那两种格式，文本清单它读不了，而且**没有可推导的等价物** —— ACL4SSR 不发布任何
+sing-box 产物。所以这不是「MiSub 少写了转换代码」，是格式不兼容 + 上游不提供，必须有人把同一份
+内容以 sing-box 格式托管出来。这就是「供应链」这个词的全部含义。
+
+**上游内置模板路径为什么没暴露这个问题**：它的 sing-box 规则集全部换成了 SagerNet 官方 `.srs`
+（`ADS` → `geosite-category-ads-all.srs` 等），根本不碰 ACL4SSR。详见
+`pr-singbox-renderer-defects.md` §六。
+
+**为什么这条路我们照抄不了**：那是「换内容」而不是「转格式」，sing-box 用户拿到的是 geosite 近似
+分类。这在只承诺 8 个粗粒度键、用户改不了的内置模板里成立；而可视化编辑器卖的恰恰是「逐张卡片
+挑你要的那份清单」，68 张卡片 + 用户自填，静默换成别的清单违背用户挑的意思。
+
+---
+
+## 三、要你拍板：托管方案三选一
+
+三个候选，都能让那 68 张卡片在 sing-box 下生效，代价不同。**推荐方案 A。**
+
+| | **A. 构建期自转 + 随 Pages 托管** | **B. 引用 karing-ruleset** | **C. 自建动态转换端点** |
+|---|---|---|---|
+| 第三方 | **零** | 多一个 | 零 |
+| 内容一致性 | 与 clash 侧钉的**同一份** | karing 在另一时间点编译，钉版本后必然 drift | 同一份 |
+| 客户端版本地板 | 1.8（source `version: 1`） | 1.8（karing 的 `.srs` 是 v1） | 自定 |
+| 覆盖用户自填 URL | 否 | 否 | **是** |
+| 新增故障面 | 规则集绑在用户自己的部署域名上 | 见下方「钉版本两难」 | SSRF / 缓存 / CPU |
+| 工作量 | 一个构建期脚本 + 生成物进仓库 | 一张映射表 | 独立项目级 |
+
+**A 的具体做法**：构建期把钉住 revision 的 68 个 `.list` 转成 sing-box source JSON
+（`{"version":1,"rules":[…]}`），提交进 `public/`，随 Pages 一起发布，客户端从用户自己的 MiSub
+域名取。转换是纯文本变换，用的就是前一轮 §1.4 那张类型映射表 —— 复用，不是重复劳动。
+
+- 尺寸不成问题：68 个文件 source JSON 合计 **2,229 KB**（同内容 `.srs` 是 861 KB，但 `.srs` 要
+  `sing-box rule-set compile` 二进制，source JSON 纯 JS 就能生成，且地板更低）
+- 换 ACL4SSR revision 时 diff 里能直接看出规则变了什么，这是把生成物提交进仓库换来的
+- 附带好处：客户端不必能连 `raw.githubusercontent.com`
+- URL 从 `managedConfigUrl` 派生，`main-handler.js:1102` 的 `buildManagedConfigUrl(request.url)`
+  在真实订阅路径上恒有值；为空时（单测、渲染器被直接调用）退回原始 URL 原样透传
+
+**A 唯一实质的新增故障面**：域名换了、Pages 挂了，sing-box 侧规则集就取不到 —— 其余五个不受影响，
+它们直连 GitHub。这是要接受的代价。
+
+**B 的钉版本两难（这是不推荐它的主要原因）**：`KaringX/karing-ruleset` 默认分支是 `sing`（不是
+`main`），是 ACL4SSR 的 fork，**`sing` 分支只有一个 commit**（`90965732`，2026-09-04，message 就叫
+「Released on」）—— 每次发布 force-push 覆盖。在这种分支上钉 SHA，下一次发布后那个 commit 就成了
+unreachable object，raw 还能服务多久没有承诺。**钉 = 可能全线 404，不钉 = 第三方内容不受控。**
+加上钉住 ACL4SSR revision 后两边内容必然不同源，「同一个 ACL4SSR 文件、语义一致」这个说法不成立。
+
+**C 留给遗留问题**，见 §八。它是唯一能覆盖用户自填 URL 的方案，但周边工作量在转换之外，本轮不做。
+
+### 两张广告卡片：三个方案下都用上游官方产物，不自建
+
+anti-AD 与 AWAvenue 每日重建，自建等于把日更内容钉成快照，反而更差；而且 anti-AD 转出来是 2–3 MB
+的生成物天天变，不该进 git。
+
+| 卡片 | sing-box 用 | 已核实 |
+|---|---|---|
+| `ad-anti-ad` | `privacy-protection-tools/anti-ad.github.io/master/docs/anti-ad-sing-box.srs` | 783,964 B，头四字节 `53 52 53 02` = **v2 → 地板 1.10** |
+| `ad-awavenue` | `TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Singbox.json` | 28,718 B，`"version": 3` = **地板 1.11**；`-Singbox.srs` 不存在（404） |
+
+**注意**：anti-AD 的 sing-box 文件**不在 `anti-AD` 仓库里**，在 `anti-ad.github.io`。
+`privacy-protection-tools/anti-AD/master/anti-ad-sing-box.srs` 实测 404 —— 该仓库默认分支整棵树里
+没有任何 `srs` / `sing` 文件，只有 README 的表格提到它。官网镜像 `https://anti-ad.net/anti-ad-sing-box.srs`。
+
+**所以整体客户端地板是 1.11**，由 AWAvenue 定，与选哪个方案无关。这和前一轮 §三 定的 1.11 一致。
+想压到 1.10 就把 AWAvenue 也纳入自建（28 KB，可以接受）；压到 1.8 得连 anti-AD 一起，不划算。
+
+---
+
+## 四、已核实的事实（选方案 B 时才需要，留档免得重查）
+
+`sing` 分支 commit `90965732` 的树，用 GitHub API `git/trees?recursive=1` 拉全量后比对：
+
+- `ACL4SSR/` 下 **328 个 `.srs` + 182 个 `.json`**，**保留了 `Ruleset/` 子目录**，与 ACL4SSR 原路径
+  一一对应（不是扁平按基名命名 —— 这一点最初记错过）
+- 拿目录里那 68 个 ACL4SSR 来源逐个比对：**同路径 `.srs` 缺 0 个，同路径 `.json` 也缺 0 个**
+- `ACL4SSR/Ruleset/Telegram.srs` 头四字节 `53 52 53 01`（magic `SRS` + version byte `01`）
+  → rule-set **version 1** → 地板 sing-box 1.8.0；它的 `.json` 同样是 `"version": 1`
+
+所以选 B 的话，映射可以写成**纯路径改写**而不是 68 行硬编码表：
+
+```
+/ACL4SSR/ACL4SSR/<rev>/Clash/X.list          → /KaringX/karing-ruleset/<rev>/ACL4SSR/X.srs
+/ACL4SSR/ACL4SSR/<rev>/Clash/Ruleset/X.list  → /KaringX/karing-ruleset/<rev>/ACL4SSR/Ruleset/X.srs
+```
+
+形状与现成的 `toClashRuleProviderUrl()`（`render-clash.js:66`）一样，新增 ACL4SSR 卡片时自动生效。
+
+选 B 还必须做的一件事：**加进钉版本要改两处**。`PINNED_RULE_REVISIONS` 在
+`builtin-rules-provider.js:257`，而真正生效的查找表是 `pinRemoteRuleUrl()` 内部的 `revisions`
+（`:278`）。只改前者不产生任何钉版本效果。
+
+---
+
+## 五、实现方案（按推荐的 A 写）
+
+### 5.1 构建期转换脚本
+
+新增 `scripts/build-singbox-rulesets.mjs`：
+
+1. 读 `catalog.js` 的 `BUILTIN_CARDS` + `LOCAL_AREA_NETWORK_SOURCE`，取出所有 `kind: 'remote'` 的
+   ACL4SSR URL（当前 68 个，别硬编码清单，让它跟着目录走）
+2. 按 `pinRemoteRuleUrl()` 钉到 `PINNED_RULE_REVISIONS.ACL4SSR` 后拉取
+3. 逐行转成 sing-box headless rule，写 `{"version":1,"rules":[…]}`
+4. 输出到 `public/rulesets/singbox/<相对路径>.json`，保持 ACL4SSR 的目录结构
+
+行级映射复用前一轮 §1.4 那张表。`.list` 里出现的、sing-box 没有对应字段的类型（`USER-AGENT`、
+`URL-REGEX` 等）**丢弃并计数**，脚本末尾打印每个文件丢了多少行 —— 这个数字要看一眼，某个文件丢
+太多说明它本来就不该给 sing-box 用。
+
+`no-resolve` 修饰符丢弃，理由同 `rule-modifiers.js:20-21`。
+
+### 5.2 渲染器改动
+
+新建 `shared/singbox-ruleset-map.js`（放 `shared/` 是为了将来换键时不用搬家；`shared/` 已被两侧
+分别 import —— `functions/modules/dns-template-handler.js:5` 引 `shared/safe-dns.js`，
+`DnsTemplateManager.vue:5` 引 `shared/dns-template-validation.js`）：
+
+```js
+// 输入 = 卡片里写的来源 URL；输出 = sing-box 用的 URL，认不出来就返回 null
+export function toSingboxRuleSetUrl(sourceUrl, { origin }) { /* … */ }
+```
+
+- ACL4SSR URL → `${origin}/rulesets/singbox/<相对路径>.json`
+- 两张广告卡片的 URL → 硬编码成 §三 那张表里的官方产物
+- 其余（用户自填）→ `null`
+
+`buildRuleSets()` 里只改两个字段：
+
+```js
+const singboxUrl = toSingboxRuleSetUrl(rule.value, { origin }) || rule.value;
+return {
+    tag: sanitizeTag(rule.value),        // ← 前一轮已改成只从 URL 派生，本轮不再动
+    type: 'remote',
+    format: singboxUrl.endsWith('.srs') ? 'binary' : 'source',
+    url: singboxUrl.startsWith(origin) ? singboxUrl : pinRemoteRuleUrl(singboxUrl),
+    …
+};
+```
+
+`tag` 不动是关键：`mapRuleToSingbox()` 与 `buildRuleSets()` 都从原始 `rule.value` 派生 tag，只改
+`url` / `format` 两边就照旧对得上。**前提是前一轮的 §1.5 已经把 tag 改成只从 URL 派生**，否则这里
+要连带处理 policy，两处得同步改。
+
+`origin` 从 `options.managedConfigUrl` 取 `new URL(...).origin`；为空时 `toSingboxRuleSetUrl` 对
+ACL4SSR 也返回 `null`，走原样透传 —— 单测与渲染器直接调用的场景由此保持可跑。
+
+### 5.3 用户自填远程 URL 的可见提示
+
+本轮修不掉用户自填的 URL（见 §八），所以必须附带一条可见提示，把静默失效变成明说的限制：在
+`src/utils/rule-generator/validate.js` 里，对 `origin === 'user'` 且含远程来源的卡片加一条 `warn`
+（「这条来源在 sing-box 下不生效」）。几行的事，但它是本轮唯一让用户知道边界的手段。
+
+---
+
+## 六、测试
+
+新增用例挂在 `tests/unit/rule-generator-render-matrix.test.js`。
+
+| 用例 | 钉住什么 |
+|---|---|
+| 内置目录的 ACL4SSR 卡片在 sing-box 下 `url` 指向本站 `/rulesets/singbox/…json`、`format: source` | §五 主路径 |
+| 每个生成的 `.json` 都能 `JSON.parse` 且有 `version` / `rules` 两个键 | 转换脚本的产物形状 |
+| 生成物覆盖目录里全部 ACL4SSR 来源，一个不缺 | 防「加了卡片忘了跑脚本」。**这条最有价值** |
+| 两张广告卡片指向 §三 表里的官方 URL，且那两个 URL 不被 `pinRemoteRuleUrl` 改写 | 它们刻意不钉版本，每日重建 |
+| 表里没有的 URL（用户自填）原样透传，不抛错 | 降级路径 |
+| `managedConfigUrl` 为空时 ACL4SSR 也走原样透传 | 单测与直接调用渲染器的场景 |
+| `validate.js` 对含远程来源的用户卡片给出 warn | §5.3 |
+| 其余五个渲染器的产物在改动前后逐字节相同 | 范围约束。改动前先存基线 |
+
+转换脚本本身也要一个用例：喂一小段构造的 `.list`（含一条会被丢弃的 `URL-REGEX`），断言输出的
+`rules` 内容与丢弃计数。不要在单测里打网络。
+
+---
+
+## 七、验收：修完之后成立到什么程度
+
+分层写，因为确定性不一样。**不要把这几层混着说成「六平台通用」。**
+
+**层 0 — sing-box 能启动。** 由前一轮负责。本轮开工前它必须已经绿。
+
+**层 1 — 配置形状正确。** 修完即成立，单测可验证。
+
+**层 2 — 客户端能消费远程清单。** clash 已实测（`behavior: classical` + `format: text`）。
+sing-box 本轮要**实机验一次**：确认 source JSON 能被拉取并生效，且规则真的命中。
+surge / loon / quanx / egern 四个消费的都是 Surge 风格清单，把握较大但**没有实机验证过**，
+执行时各过一遍，尤其 quanx 与 egern。
+
+PR / 提交信息里不要写「六平台验证通过」，除非真跑过。
+
+**层 3 — 能力范围。**
 
 | 场景 | 结果 |
 |---|---|
 | 只用内置目录卡片的方案 | 六平台可用 |
-| 自建**内联规则**卡片 | 六平台可用（§4.1 修完后） |
+| 自建**内联规则**卡片 | 六平台可用（前一轮修完后） |
 | 自建**远程 URL** 卡片 | **sing-box 下仍然不生效**，其余五个可用 |
 
-最后一格是本次修不掉的。所以严格讲「一种可视化方式六平台通用」只达成大部分，
-而「自定义规则集」恰好是可视化编辑器最有价值的功能之一。
-
-**因此本次必须附带一条可见提示**：在 `src/utils/rule-generator/validate.js` 里，对
-`origin === 'user'` 且含远程来源的卡片加一条 `warn`（「这条来源在 sing-box 下不生效」）。
-把静默失效变成明说的限制，几行的事，但它是本次唯一让用户知道边界的手段。
+最后一格是本轮修不掉的，靠 §5.3 的 warn 明说。
 
 ---
 
-## 七、遗留：怎么补上最后一格
+## 八、遗留：怎么补上最后一格
 
-两条路，都独立于本次：
+**MiSub 自建转换端点。** 一条路由拉上游文本清单 → 转成 sing-box source JSON → 缓存 → 返回。唯一能
+覆盖任意用户 URL 的方案。工作量在周边不在转换（转换逻辑本轮的构建期脚本已经写好，可以直接复用）：
 
-**接法 C：服务端读注释头。** INI 里已经有一条无损的 MiSub 专用旁路 ——
-`; misub-visual-state-v1:` 那行 base64 是完整卡片状态。现在只有前端
-`src/utils/rule-generator/parse.js` 在读，服务端 `ini-template-parser.js:78` 把 `;` 开头的
-行整行跳过。服务端也读它的话，拿到的是**卡片身份**（`ad-basic`、`ai-openai`…）而不只是
-URL，于是每个上游都能用自己官方发布的 sing-box 产物，不需要第三方编译源、也不换内容。
-本次那张表届时只需把键从 URL 换成卡片 id，不用搬家 —— 这就是它放 `shared/` 的原因。
-代价：`catalog.js` 要能被 `functions/` import（`shared/` 已有先例）。
+- **SSRF**：必须白名单主机或 HMAC 签名 URL，否则是开放代理
+- **缓存**：anti-AD 那类 3.35 MB 清单不能每客户端每天回源；可抄 `github-proxy-handler.js` 的
+  KV + timestamp，或 `cf: { cacheTtl, cacheEverything }`
+- **CPU / 内存**：10 万行必须走 `TransformStream` 流式，不能整块 buffer 再 `JSON.stringify`
 
-**MiSub 自建转换端点。** 一条路由拉上游文本清单 → 转成 sing-box source JSON → 缓存 → 返回。
-唯一能覆盖任意用户 URL 的方案。工作量在周边不在转换：SSRF（必须白名单主机或 HMAC 签名 URL，
-否则是开放代理）、缓存（anti-AD 那类 3.35 MB 清单不能每客户端每天回源；可抄
-`github-proxy-handler.js` 的 KV + timestamp 或 `cf: { cacheTtl, cacheEverything }`）、
-CPU/内存（10 万行必须走 `TransformStream` 流式，不能整块 buffer 再 `JSON.stringify`）。
 这条路通了之后顺带能解决 Clash 侧 `behavior` 硬编码 `classical` 的问题。
 
+**接法 C（服务端读注释头）不能替代它。** INI 里 `; misub-visual-state-v1:` 那行 base64 是完整卡片
+状态，现在只有前端 `parse.js` 在读，服务端 `ini-template-parser.js:11` 把 `;` 开头的行整行跳过。
+服务端也读它的话能拿到**卡片身份**（`ad-basic`、`ai-openai`…）而不只是 URL —— 但那只对「上游自己
+发布了 sing-box 产物」的卡片有用，**ACL4SSR 不发布**，那 68 张卡片照样要靠 §三 的方案，用户自填的
+URL 更是完全帮不上。所以接法 C 不解决本轮的问题，也不解决最后一格，价值有限，暂不排期。
+
 ---
 
-## 八、操作步骤
+## 九、操作步骤
 
-1. 先确认 §4.2 那两个待拍板项，未定不要动手
-2. `git switch -c fix/singbox-visual-rule-parity`
-3. 按 §4.1 → §4.3 顺序做。4.1 独立且收益最大，先让它单独绿
-4. 每一步按 §五 补对应用例；改动前先存五个渲染器的产物基线
-5. `npx vitest run` 全绿 + `npm run build` 通过
-6. 层 2 的真客户端验证
-7. 停下报告，**不要自行 commit / push / 合并**
+1. 确认前一轮（`pr-singbox-renderer-defects.md`）已落地并全绿
+2. 先验 §一 末尾那件事：远程规则集解析失败时 sing-box 是 FATAL 还是降级重试。这决定层 2 怎么写
+3. 确认 §三 的托管方案，**未定不要动手**
+4. `git switch -c feat/singbox-visual-ruleset-hosting`
+5. 改动前先存六个渲染器的产物基线（五个用来钉「逐字节不变」）
+6. 顺序：转换脚本（§5.1）→ 映射表 + 渲染器（§5.2）→ warn（§5.3）
+7. 每一步按 §六 补对应用例
+8. `npx vitest run` 全绿 + `npm run build` 通过
+9. §七 层 2 的真客户端验证
+10. 停下报告，**不要自行 commit / push / 合并**
 
-## 九、注意事项
+## 十、注意事项
 
-- **`.filter(Boolean)` 是这次的元凶模式**：`render-singbox.js:370` 把 `mapRuleToSingbox()`
-  返回的 `null` 静默吃掉。同文件 `:364` 的那个作用在出站上，与规则无关，别一起改
-- 五个渲染器的产物必须逐字节不变。`render-loon.js:283` 与 `render-quanx.js:180` 对
-  `RULE-SET` 都是 `return null` 然后走各自的 remote 段，别以为那也是 bug
-- `pinRemoteRuleUrl()`（`builtin-rules-provider.js:268`）只对表里的仓库生效，非表内 URL
-  原样返回 —— 加了 karing-ruleset 就会被钉版本，这是想要的；anti-AD / 秋风刻意不钉，
-  它们每日重建
-- **起点状态**：本文的 `functions/` 行号基于提交 `6ee94fe`（回收站那一笔），那次改动没有碰
-  `functions/`，所以行号对 `main` 直接有效。§4.2 提到的两张广告卡片（`ad-anti-ad`、
-  `ad-awavenue`）在 `ee39020` 已入库，从 `main` 起步即可直接引用
-
-
-
-
-
+- **生成物要不要进 git 是个真决定**：进 git = 部署可重现、换 revision 时 diff 可审计、构建不依赖
+  网络；不进 = 仓库干净但构建期必须能连 GitHub。本文按「进 git」写，改主意的话 §5.1 的输出目标和
+  §六 那条「覆盖全部来源」的用例都要跟着调
+- **`.gitattributes` 记一笔**：`public/rulesets/**` 标 `linguist-generated`，否则 GitHub 上的 diff
+  和语言统计会被 2 MB 生成物淹掉
+- 换 `PINNED_RULE_REVISIONS.ACL4SSR` 时必须重跑转换脚本，否则 clash 侧换了新 revision、sing-box
+  侧还是旧内容 —— 这正是方案 B 那个 drift 问题，方案 A 只是把它变成了「一条能在 CI 里检查的约束」。
+  值得加一个断言：生成物里记下当时的 revision，与 `PINNED_RULE_REVISIONS.ACL4SSR` 不一致就让测试红
+- `pinRemoteRuleUrl()`（`builtin-rules-provider.js:268`）只对表里的仓库生效，非表内 URL 原样返回。
+  anti-AD / 秋风刻意不钉，它们每日重建
+- **起点状态**：本文行号基于 `3debf8c`（`main`）。§5.2 假定前一轮已经把 `rule_set` tag 改成只从
+  URL 派生；若前一轮改了主意保留 policy，§5.2 的代码片段要跟着改
+- sing-box 源格式版本对照：1→1.8、2→1.10、3→1.11、4→1.13、5→1.14。生成物写 `version: 1`
+  是刻意的 —— 我们只用最基础的那几个 rule item，没有理由抬高地板

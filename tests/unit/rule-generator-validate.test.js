@@ -43,6 +43,40 @@ function bare(cards = []) {
 }
 
 describe('rule-generator validate', () => {
+    it.each(['user', 'builtin'])('warns on active incompatible sources even when origin is %s', origin => {
+        const result = validateState(bare([card({ origin })]));
+        const warnings = pick(result, 'warn', 'cards[0].sources[0]');
+        expect(warnings.some(item => item.message.includes('sing-box'))).toBe(true);
+        expect(result.canGenerate).toBe(true);
+    });
+
+    it.each(['off', 'trash'])('does not warn about sing-box for inactive %s cards', bucket => {
+        expect(messages(validateState(bare([card({ bucket })])))).not.toContain('sing-box');
+    });
+
+    it.each([
+        'https://example.com/rules.json',
+        'https://example.com/rules.srs#latest',
+        'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/Claude.list',
+        'https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-surge.txt'
+    ])('avoids false incompatibility warnings for %s', value => {
+        const result = validateState(bare([card({ sources: [{ kind: 'remote', value }] })]));
+        expect(messages(result)).not.toContain('sing-box');
+    });
+
+    it('distinguishes an unknown content format from an incompatible text list', () => {
+        const result = validateState(bare([card({ sources: [{ kind: 'remote', value: 'https://example.com/rules' }] })]));
+        expect(messages(result)).toMatch(/sing-box.*无法确认|无法确认.*sing-box/);
+    });
+
+    it('warns when a mapped source loses URL-REGEX rules', () => {
+        const result = validateState(bare([card({
+            sources: [{ kind: 'remote', value: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Download.list' }]
+        })]));
+        expect(messages(result)).toMatch(/sing-box.*URL-REGEX|URL-REGEX.*sing-box/);
+        expect(result.canGenerate).toBe(true);
+    });
+
     it('默认状态可以生成，无 error', () => {
         const result = validateState(createDefaultState());
         expect(result.canGenerate).toBe(true);

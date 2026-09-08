@@ -15,10 +15,12 @@ import {
     RESERVED_POLICY_NAMES,
     OTHER_REGION_ID,
     BUILTIN_CARDS,
+    RULE_BUCKET_ORDER,
     effectiveSources,
     isTopLevelIn
 } from './catalog.js';
 import { findSourceConflicts, sourceKey } from './dedupe.js';
+import { getSingboxRuleSetCompatibility } from '../../../shared/singbox-ruleset-map.js';
 
 /**
  * 分隔符注入（§6.1，旧 R1 —— 17 条问题里唯一仍成立的高危项）。
@@ -155,6 +157,18 @@ function checkCardSources(card, cardIndex) {
         }
 
         out.push(...checkInjection(value, sourceField, '规则集地址'));
+        if (!RULE_BUCKET_ORDER.includes(card.bucket)) return;
+        const compatibility = getSingboxRuleSetCompatibility(value);
+        if (compatibility === 'partial') {
+            out.push(finding('warn', sourceField,
+                `卡片「${card.name}」的来源含 URL-REGEX 等无法转换的条件，sing-box 下只覆盖其余规则`));
+        } else if (compatibility === 'text') {
+            out.push(finding('warn', sourceField,
+                `卡片「${card.name}」的来源未转换为 sing-box 规则集；若内容是 .list/.txt 文本清单，可能导致 sing-box 启动失败`));
+        } else if (compatibility === 'unknown') {
+            out.push(finding('warn', sourceField,
+                `卡片「${card.name}」的远程来源格式无法确认，请确认内容是 sing-box source JSON 或 SRS`));
+        }
     });
 
     return out;

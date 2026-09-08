@@ -3,6 +3,8 @@ import { normalizeUnifiedTemplateModel, resolveModelDnsProxyGroup } from '../tem
 import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from '../safe-dns.js';
 import { getSingboxDnsRuleSet, pinRemoteRuleUrl } from '../builtin-rules-provider.js';
 import { prepareSingboxGroups } from '../singbox-routing.js';
+import { toSingboxHeadlessRule } from '../../../../shared/singbox-rule.js';
+import { toSingboxRuleSetUrl, getSingboxRuleSetFormat } from '../../../../shared/singbox-ruleset-map.js';
 
 function sanitizeTag(value) {
     return String(value || '').trim() || 'Untitled';
@@ -285,35 +287,8 @@ function mapRuleToSingbox(rule, resolveAction) {
             ...action
         };
     }
-    if (type === 'domain-suffix') {
-        return {
-            domain_suffix: [rule.value],
-            ...action
-        };
-    }
-    if (type === 'domain-keyword') {
-        return {
-            domain_keyword: [rule.value],
-            ...action
-        };
-    }
-    if (type === 'domain') {
-        return { domain: [rule.value], ...action };
-    }
-    if (type === 'ip-cidr' || type === 'ip-cidr6') {
-        return { ip_cidr: [rule.value], ...action };
-    }
-    if (type === 'process-name') {
-        return { process_name: [rule.value], ...action };
-    }
-    if (type === 'dst-port') {
-        const value = String(rule.value ?? '').trim();
-        const port = Number(value);
-        if (!/^\d+$/.test(value) || !Number.isInteger(port) || port < 0 || port > 65535) {
-            throw new Error('[Singbox] Invalid DST-PORT: expected an integer from 0 to 65535');
-        }
-        return { port: [port], ...action };
-    }
+    const match = toSingboxHeadlessRule(type, rule.value);
+    if (match) return { ...match, ...action };
     console.warn(`[Singbox] Unsupported rule type: ${type}`);
     return null;
 }
@@ -330,24 +305,19 @@ function remoteRuleSetUrl(value) {
     throw new Error('[Singbox] Invalid RULE-SET: expected an absolute HTTP(S) URL');
 }
 
-function detectRuleSetFormat(url) {
-    const raw = String(url || '').trim().toLowerCase();
-    if (!raw) return 'source';
-    return raw.endsWith('.srs') ? 'binary' : 'source';
-}
-
 // dnsProxyGroup 为空串时不绑 download_detour：此时没有可用的 DNS 出口组
-function buildRuleSets(rules, dnsProxyGroup = '') {
+function buildRuleSets(rules, dnsProxyGroup = '', managedConfigUrl = '') {
     const remoteRuleSets = new Map();
     rules.forEach(rule => {
         if (String(rule.type || '').toLowerCase() !== 'rule-set') return;
         const url = remoteRuleSetUrl(rule.value);
         if (remoteRuleSets.has(url)) return;
+        const downloadUrl = toSingboxRuleSetUrl(url, { origin: managedConfigUrl }) || url;
         remoteRuleSets.set(url, {
             tag: url,
             type: 'remote',
-            format: detectRuleSetFormat(url),
-            url,
+            format: getSingboxRuleSetFormat(downloadUrl),
+            url: downloadUrl,
             update_interval: '24h',
             ...(dnsProxyGroup ? { download_detour: dnsProxyGroup } : {})
         });
@@ -404,7 +374,8 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
     const rules = finalIndex < 0 ? normalizedModel.rules : normalizedModel.rules.slice(0, finalIndex);
     const ruleSetObjects = [
         getSingboxDnsRuleSet({ dnsProxyGroup }),
-        ...buildRuleSets(rules, dnsProxyGroup).filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
+        ...buildRuleSets(rules, dnsProxyGroup, options.managedConfigUrl ?? normalizedModel.settings.managedConfigUrl)
+            .filter(ruleSet => ruleSet.tag !== SINGBOX_CN_RULE_SET)
     ];
     const routeRules = rules.map(rule => mapRuleToSingbox(rule, resolveAction)).filter(Boolean);
     const finalPolicy = finalIndex < 0

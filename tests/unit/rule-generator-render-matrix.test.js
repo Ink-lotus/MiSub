@@ -67,6 +67,14 @@ const NON_SINGBOX_BASELINES = Object.freeze({
     egern: 'f85e22e4ddb664384df73a155c276336f0267457239a569217bbfdbd9cacbb42'
 });
 
+const MANAGED_URL_BASELINES = {
+    clash: 'c4dfcb5643656538e42c089810585431264b225ff0fd6027c3e755cfd5a6ca6a',
+    surge: '6fa3264673e1ecbdb3056650132f49a78420418c23701ca39d386aae230dbec9',
+    loon: '35eae51efd81646796861f566d807c58ff5de743ca79ee98061cbf30ab8ca898',
+    quanx: '41912bc508ceb7ddeca9a03c863fbedc3c9846e0bea8fc22351dcd990b1dfdbb',
+    egern: 'bf8b30acd3c00160f7a4e6bcfd8f8457ee571c4bf4a91a7d38640a0542f63678'
+};
+
 /**
  * 生成一份压满输出形态的状态。
  *
@@ -122,6 +130,20 @@ function rulesFor(rules, policy) {
 }
 
 describe('rule-generator render matrix', () => {
+    it('preserves the other five renderers with a nonempty managed URL', () => {
+        const state = createDefaultState();
+        state.cards = applyRecommendedBuckets(state.cards);
+        const { ini } = serializeState(state);
+        for (const { name, render } of RENDERERS.filter(renderer => renderer.name !== 'singbox')) {
+            const output = render(ini, {
+                nodeList: 'trojan://p@1.1.1.1:443#Node',
+                managedConfigUrl: 'https://misub.example/sub/demo?token=test',
+                ruleLevel: 'none', dnsThroughProxy: false
+            });
+            expect(crypto.createHash('sha256').update(output).digest('hex'), name).toBe(MANAGED_URL_BASELINES[name]);
+        }
+    });
+
     it.each(RENDERERS)('$name 渲染不抛错且产出非空', ({ render, name }) => {
         const { ini } = serializeState(richState());
         const output = render(ini, renderParams(name));
